@@ -27,13 +27,13 @@ module "eks" {
 
       disk_size = var.node_disk_size
 
-      # Use our custom IAM role
-      iam_role_arn = aws_iam_role.node_group.arn
+      # Let the module create IAM role with proper policies
+      # The module will automatically attach required policies
 
-      # Security group for nodes
+      # Additional security groups
       vpc_security_group_ids = [aws_security_group.node_group.id]
 
-      # Launch template
+      # Launch template configuration
       launch_template_name            = "${var.cluster_name}-node-group-lt"
       launch_template_use_name_prefix = true
       launch_template_description     = "Launch template for ${var.cluster_name} EKS managed node group"
@@ -55,33 +55,29 @@ module "eks" {
     }
   }
 
-  # Cluster access entry
-  access_entries = {
-    cluster = {
-      kubernetes_groups = []
-      principal_arn     = aws_iam_role.cluster.arn
+  # Cluster access configuration
+  # Use cluster_security_group_additional_rules if needed for custom access
+  manage_aws_auth_configmap = true
 
-      policy_associations = {
-        cluster = {
-          policy_arn = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
-          access_scope = {
-            type = "cluster"
-          }
-        }
-      }
-    }
-  }
+  aws_auth_roles = [
+    {
+      rolearn  = aws_iam_role.node_group.arn
+      username = "system:node:{{EC2PrivateDNSName}}"
+      groups   = ["system:bootstrappers", "system:nodes"]
+    },
+  ]
 
   tags = var.tags
 }
 
 # EKS Add-ons
 resource "aws_eks_addon" "vpc_cni" {
-  cluster_name             = module.eks.cluster_name
-  addon_name               = "vpc-cni"
-  addon_version            = "v1.15.1-eksbuild.1"
-  resolve_conflicts        = "OVERWRITE"
-  service_account_role_arn = null
+  cluster_name                = module.eks.cluster_name
+  addon_name                  = "vpc-cni"
+  addon_version               = "v1.15.1-eksbuild.1"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+  service_account_role_arn    = null
 
   tags = var.tags
 
@@ -91,10 +87,11 @@ resource "aws_eks_addon" "vpc_cni" {
 }
 
 resource "aws_eks_addon" "coredns" {
-  cluster_name      = module.eks.cluster_name
-  addon_name        = "coredns"
-  addon_version     = "v1.10.1-eksbuild.5"
-  resolve_conflicts = "OVERWRITE"
+  cluster_name                = module.eks.cluster_name
+  addon_name                  = "coredns"
+  addon_version               = "v1.10.1-eksbuild.5"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
 
   tags = var.tags
 
@@ -104,10 +101,11 @@ resource "aws_eks_addon" "coredns" {
 }
 
 resource "aws_eks_addon" "kube_proxy" {
-  cluster_name      = module.eks.cluster_name
-  addon_name        = "kube-proxy"
-  addon_version     = "v1.28.2-eksbuild.2"
-  resolve_conflicts = "OVERWRITE"
+  cluster_name                = module.eks.cluster_name
+  addon_name                  = "kube-proxy"
+  addon_version               = "v1.28.2-eksbuild.2"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
 
   tags = var.tags
 
@@ -117,11 +115,12 @@ resource "aws_eks_addon" "kube_proxy" {
 }
 
 resource "aws_eks_addon" "ebs_csi_driver" {
-  cluster_name             = module.eks.cluster_name
-  addon_name               = "aws-ebs-csi-driver"
-  addon_version            = "v1.24.0-eksbuild.1"
-  resolve_conflicts        = "OVERWRITE"
-  service_account_role_arn = aws_iam_role.ebs_csi_driver.arn
+  cluster_name                = module.eks.cluster_name
+  addon_name                  = "aws-ebs-csi-driver"
+  addon_version               = "v1.24.0-eksbuild.1"
+  resolve_conflicts_on_create = "OVERWRITE"
+  resolve_conflicts_on_update = "OVERWRITE"
+  service_account_role_arn    = aws_iam_role.ebs_csi_driver.arn
 
   tags = var.tags
 
