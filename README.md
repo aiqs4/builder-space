@@ -37,7 +37,12 @@ Cost-saving features:
 2. **Terraform** (>= 1.0)
 3. **kubectl** for cluster management
 
-### Deployment Steps
+### Deployment Options
+
+#### Option 1: GitHub Actions (Recommended)
+See `GITHUB_ACTIONS.md` for OIDC setup, then deploy via Actions workflow.
+
+#### Option 2: Local Deployment
 
 1. **Clone and navigate to the repository**:
 ```bash
