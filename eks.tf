@@ -1,4 +1,9 @@
 # Import EKS module
+locals {
+  cluster_role_arn = var.use_existing_cluster_role ? data.aws_iam_role.existing_cluster[0].arn : aws_iam_role.cluster[0].arn
+  node_role_arn    = var.use_existing_node_role ? data.aws_iam_role.existing_node_group[0].arn : aws_iam_role.node_group[0].arn
+}
+
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
@@ -61,7 +66,7 @@ module "eks" {
   # Access entries for node group role (equivalent to old aws_auth_roles)
   access_entries = {
     node_group = {
-      principal_arn     = aws_iam_role.node_group.arn
+      principal_arn     = local.node_role_arn
       type              = "EC2_LINUX"
       user_name         = "system:node:{{EC2PrivateDNSName}}"
       kubernetes_groups = ["system:bootstrappers", "system:nodes"]

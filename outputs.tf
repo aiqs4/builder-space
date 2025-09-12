@@ -76,12 +76,12 @@ output "internet_gateway_id" {
 
 output "cluster_iam_role_arn" {
   description = "EKS cluster IAM role ARN"
-  value       = aws_iam_role.cluster.arn
+  value       = var.use_existing_cluster_role ? data.aws_iam_role.existing_cluster[0].arn : aws_iam_role.cluster[0].arn
 }
 
 output "node_group_iam_role_arn" {
   description = "EKS node group IAM role ARN"
-  value       = aws_iam_role.node_group.arn
+  value       = var.use_existing_node_role ? data.aws_iam_role.existing_node_group[0].arn : aws_iam_role.node_group[0].arn
 }
 
 output "region" {
