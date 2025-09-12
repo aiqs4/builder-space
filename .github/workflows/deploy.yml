@@ -45,7 +45,7 @@ jobs:
 
     - name: Terraform Plan
       run: terraform plan
-      if: github.event.inputs.action == 'plan' || github.event_name == 'push'
+      if: github.event.inputs.action in ['plan', 'apply'] || github.event_name == 'push'
 
     - name: Terraform Apply
       run: terraform apply -auto-approve
