@@ -12,9 +12,9 @@ on:
         - plan
         - apply
         - destroy
-  push:
-    branches: [ main ]
-    paths: [ '*.tf', 'deploy.sh' ]
+  # push:
+  #   branches: [ main ]
+  #   paths: [ '*.tf', 'deploy.sh' ]
 
 permissions:
   id-token: write
@@ -45,7 +45,8 @@ jobs:
 
     - name: Terraform Plan
       run: terraform plan
-      if: github.event.inputs.action in ['plan', 'apply'] || github.event_name == 'push'
+      if: github.event.inputs.action != 'destroy'
+      # if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action != 'destroy') }}
 
     - name: Terraform Apply
       run: terraform apply -auto-approve

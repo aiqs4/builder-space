@@ -74,10 +74,24 @@ resource "aws_iam_instance_profile" "node_group" {
   tags = var.tags
 }
 
-# # Policy to allow the GitHub Actions role to read itself (fixes session context error)
+/*
+  Attach a minimal identity policy to the existing GitHub Actions role
+  named 'github-deploy-eks' so that the AWS data source used by the
+  EKS module (aws_iam_session_context) can call iam:GetRole on the
+  assumed role. This addresses the AccessDenied: iam:GetRole error
+  observed when running Terraform from the OIDC-assumed role.
+
+  Notes:
+  - This resource will attach an inline policy to an existing role
+    named 'github-deploy-eks' in the account where Terraform runs.
+  - If the role does not exist yet, either create it first or attach
+    the policy manually in the console. Attaching via Terraform to a
+    role that doesn't exist will fail at apply time.
+*/
+
 # resource "aws_iam_role_policy" "github_deploy_role_self_read" {
 #   name = "github-deploy-role-self-read"
-#   role = "github-deploy-eks"  # Assuming this role exists externally
+#   role = "github-deploy-eks"  # existing role name created for GitHub Actions OIDC
 
 #   policy = jsonencode({
 #     Version = "2012-10-17"
@@ -91,5 +105,11 @@ resource "aws_iam_instance_profile" "node_group" {
 #   })
 # }
 
-# # Data source to get account ID
-# data "aws_caller_identity" "current" {}
+/*
+  The data source `aws_caller_identity.current` already exists in
+  `main.tf`, so we reference it here. If you prefer this file to be
+  self-contained, uncomment the data block below and remove the one in
+  `main.tf`.
+
+data "aws_caller_identity" "current" {}
+*/
