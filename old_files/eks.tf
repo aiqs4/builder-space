@@ -8,7 +8,7 @@ module "eks" {
   source  = "terraform-aws-modules/eks/aws"
   version = "~> 21.0"
 
-  name    = var.cluster_name
+  name               = var.cluster_name
   kubernetes_version = var.cluster_version
 
   vpc_id     = aws_vpc.main.id
@@ -19,7 +19,7 @@ module "eks" {
   # EKS Managed Node Groups
   eks_managed_node_groups = {
     main = {
-      name    = "${var.cluster_name}-ng"
+      name = "${var.cluster_name}-ng"
 
       # Cost-optimized instance configuration
       instance_types = local.spot_instance_config.instance_types
@@ -64,14 +64,14 @@ module "eks" {
       } : {}
 
       tags = merge(var.tags, {
-        Name        = "${var.cluster_name}-ng"
+        Name         = "${var.cluster_name}-ng"
         CapacityType = local.spot_instance_config.capacity_type
       })
     }
   }
 
   # Cluster access configuration
-  authentication_mode = "API_AND_CONFIG_MAP"
+  authentication_mode                      = "API_AND_CONFIG_MAP"
   enable_cluster_creator_admin_permissions = true
 
   # Access entries for node group role (equivalent to old aws_auth_roles)

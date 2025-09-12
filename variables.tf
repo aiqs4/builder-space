@@ -130,6 +130,55 @@ variable "existing_cloudwatch_log_group_name" {
   default     = ""
 }
 
+# Cost-saving feature flags (disabled by default for free-credit period)
+variable "enable_spot_instances" {
+  description = "Enable spot instances for cost savings (~70% reduction). WARNING: Spot instances can be terminated at any time."
+  type        = bool
+  default     = false
+}
+
+variable "enable_reserved_instances" {
+  description = "Enable reserved instances for long-term cost savings. Only use if running cluster 24/7 for extended periods."
+  type        = bool
+  default     = false
+}
+
+variable "enable_cluster_autoscaler" {
+  description = "Enable cluster autoscaler to automatically scale nodes based on workload demand"
+  type        = bool
+  default     = false
+}
+
+variable "enable_scheduled_scaling" {
+  description = "Enable scheduled scaling for dev environments (scale down during off-hours)"
+  type        = bool
+  default     = false
+}
+
+variable "scheduled_scale_down_time" {
+  description = "Cron expression for when to scale down the cluster (e.g., '0 18 * * 1-5' for 6 PM weekdays)"
+  type        = string
+  default     = "0 18 * * 1-5"
+}
+
+variable "scheduled_scale_up_time" {
+  description = "Cron expression for when to scale up the cluster (e.g., '0 8 * * 1-5' for 8 AM weekdays)"
+  type        = string
+  default     = "0 8 * * 1-5"
+}
+
+variable "enable_cost_monitoring" {
+  description = "Enable cost monitoring and alerts"
+  type        = bool
+  default     = true
+}
+
+variable "cost_alert_threshold" {
+  description = "Monthly cost threshold for alerts (in USD)"
+  type        = number
+  default     = 100
+}
+
 # KMS key reuse / creation
 variable "use_existing_kms_key" {
   description = "If true, use an existing KMS key for EKS secrets encryption instead of creating a new one"
