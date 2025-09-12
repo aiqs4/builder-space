@@ -7,7 +7,7 @@ variable "aws_region" {
 variable "cluster_name" {
   description = "Name of the EKS cluster"
   type        = string
-  default     = "builder-space-dev"
+  default     = "funda"
 }
 
 variable "cluster_version" {
