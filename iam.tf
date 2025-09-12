@@ -26,7 +26,7 @@ resource "aws_iam_role_policy_attachment" "cluster_amazon_eks_cluster_policy" {
 
 # IAM Role for EKS Node Group
 resource "aws_iam_role" "node_group" {
-  name = "${var.cluster_name}-node-group-role"
+  name = "${var.cluster_name}-ng-role"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
@@ -68,7 +68,7 @@ resource "aws_iam_role_policy_attachment" "node_group_amazon_ssm_managed_instanc
 
 # Instance profile for the node group
 resource "aws_iam_instance_profile" "node_group" {
-  name = "${var.cluster_name}-node-group-instance-profile"
+  name = "${var.cluster_name}-ng-ip"
   role = aws_iam_role.node_group.name
 
   tags = var.tags

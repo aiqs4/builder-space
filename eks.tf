@@ -14,7 +14,8 @@ module "eks" {
   # EKS Managed Node Groups
   eks_managed_node_groups = {
     main = {
-      name = "main"
+      # name = "main"
+      name    = "${var.cluster_name}-ng"
 
       instance_types = var.node_instance_types
       ami_type       = "AL2_ARM_64" # ARM-based AMI for t4g instances
@@ -32,7 +33,7 @@ module "eks" {
       vpc_security_group_ids = [aws_security_group.node_group.id]
 
       # Launch template configuration
-      launch_template_name            = "${var.cluster_name}-node-group-lt"
+      launch_template_name            = "${var.cluster_name}-ng-lt"
       launch_template_use_name_prefix = true
       launch_template_description     = "Launch template for ${var.cluster_name} EKS managed node group"
 
@@ -48,7 +49,7 @@ module "eks" {
       taints = {}
 
       tags = merge(var.tags, {
-        Name = "${var.cluster_name}-node-group"
+        Name = "${var.cluster_name}-ng"
       })
     }
   }

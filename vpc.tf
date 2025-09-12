@@ -87,11 +87,11 @@ resource "aws_security_group_rule" "cluster_egress" {
 
 # Security Group for EKS Node Group
 resource "aws_security_group" "node_group" {
-  name_prefix = "${var.cluster_name}-node-group-"
+  name_prefix = "${var.cluster_name}-ng-"
   vpc_id      = aws_vpc.main.id
 
   tags = merge(var.tags, {
-    Name = "${var.cluster_name}-node-group-sg"
+    Name = "${var.cluster_name}-ng-sg"
   })
 }
 
