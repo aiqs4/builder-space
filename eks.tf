@@ -1,22 +1,20 @@
 # Import EKS module
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "~> 19.0"
+  version = "~> 21.0"
 
-  cluster_name    = var.cluster_name
-  cluster_version = var.cluster_version
+  name    = var.cluster_name
+  kubernetes_version = var.cluster_version
 
-  vpc_id                         = aws_vpc.main.id
-  subnet_ids                     = aws_subnet.public[*].id
-  cluster_endpoint_public_access = true
+  vpc_id     = aws_vpc.main.id
+  subnet_ids = aws_subnet.public[*].id
 
-  # Cluster security group
-  cluster_security_group_id = aws_security_group.cluster.id
+  endpoint_public_access = true
 
   # EKS Managed Node Groups
   eks_managed_node_groups = {
     main = {
-      name = "${var.cluster_name}-node-group"
+      name = "main"
 
       instance_types = var.node_instance_types
       ami_type       = "AL2_ARM_64" # ARM-based AMI for t4g instances
@@ -47,7 +45,7 @@ module "eks" {
         NodeGroup   = "main"
       }
 
-      taints = []
+      taints = {}
 
       tags = merge(var.tags, {
         Name = "${var.cluster_name}-node-group"
@@ -56,16 +54,19 @@ module "eks" {
   }
 
   # Cluster access configuration
-  # Use cluster_security_group_additional_rules if needed for custom access
-  manage_aws_auth_configmap = true
+  authentication_mode = "API_AND_CONFIG_MAP"
+  enable_cluster_creator_admin_permissions = true
 
-  aws_auth_roles = [
-    {
-      rolearn  = aws_iam_role.node_group.arn
-      username = "system:node:{{EC2PrivateDNSName}}"
-      groups   = ["system:bootstrappers", "system:nodes"]
-    },
-  ]
+  # Access entries for node group role (equivalent to old aws_auth_roles)
+  access_entries = {
+    node_group = {
+      principal_arn     = aws_iam_role.node_group.arn
+      type              = "EC2_LINUX"
+      user_name         = "system:node:{{EC2PrivateDNSName}}"
+      kubernetes_groups = ["system:bootstrappers", "system:nodes"]
+    }
+  }
+
 
   tags = var.tags
 }

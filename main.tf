@@ -24,7 +24,7 @@ output "cluster_info" {
   value = {
     cluster_name     = module.eks.cluster_name
     cluster_endpoint = module.eks.cluster_endpoint
-    region           = data.aws_region.current.name
+    region           = data.aws_region.current.id
     account_id       = data.aws_caller_identity.current.account_id
   }
 }

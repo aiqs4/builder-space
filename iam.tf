@@ -73,3 +73,23 @@ resource "aws_iam_instance_profile" "node_group" {
 
   tags = var.tags
 }
+
+# # Policy to allow the GitHub Actions role to read itself (fixes session context error)
+# resource "aws_iam_role_policy" "github_deploy_role_self_read" {
+#   name = "github-deploy-role-self-read"
+#   role = "github-deploy-eks"  # Assuming this role exists externally
+
+#   policy = jsonencode({
+#     Version = "2012-10-17"
+#     Statement = [
+#       {
+#         Effect = "Allow"
+#         Action = "iam:GetRole"
+#         Resource = "arn:aws:iam::${data.aws_caller_identity.current.account_id}:role/github-deploy-eks"
+#       }
+#     ]
+#   })
+# }
+
+# # Data source to get account ID
+# data "aws_caller_identity" "current" {}
