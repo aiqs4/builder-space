@@ -19,20 +19,23 @@ module "eks" {
   # EKS Managed Node Groups
   eks_managed_node_groups = {
     main = {
-      # name = "main"
       name    = "${var.cluster_name}-ng"
 
-      instance_types = var.node_instance_types
-      ami_type       = "AL2_ARM_64" # ARM-based AMI for t4g instances
+      # Cost-optimized instance configuration
+      instance_types = local.spot_instance_config.instance_types
+      capacity_type  = local.spot_instance_config.capacity_type
+      ami_type       = "AL2_ARM_64" # ARM-based AMI for t4g instances (more cost-effective)
 
-      min_size     = var.node_min_size
-      max_size     = var.node_max_size
-      desired_size = var.node_desired_size
+      # Cost-optimized sizing
+      min_size     = local.dev_node_config.min_size
+      max_size     = local.dev_node_config.max_size
+      desired_size = local.dev_node_config.desired_size
 
-      disk_size = var.node_disk_size
+      # Optimized disk size for cost savings
+      disk_size = local.optimized_disk_size
 
-      # Let the module create IAM role with proper policies
-      # The module will automatically attach required policies
+      # Use managed node group IAM role or existing
+      iam_role_arn = var.use_existing_node_role ? null : aws_iam_role.node_group[0].arn
 
       # Additional security groups
       vpc_security_group_ids = [aws_security_group.node_group.id]
@@ -40,7 +43,7 @@ module "eks" {
       # Launch template configuration
       launch_template_name            = "${var.cluster_name}-ng-lt"
       launch_template_use_name_prefix = true
-      launch_template_description     = "Launch template for ${var.cluster_name} EKS managed node group"
+      launch_template_description     = "Cost-optimized launch template for ${var.cluster_name} EKS managed node group"
 
       update_config = {
         max_unavailable_percentage = 33
@@ -49,12 +52,20 @@ module "eks" {
       labels = {
         Environment = "development"
         NodeGroup   = "main"
+        CostOpt     = var.enable_spot_instances ? "spot" : "on-demand"
       }
 
-      taints = {}
+      taints = var.enable_spot_instances ? {
+        spot = {
+          key    = "node.kubernetes.io/instance-type"
+          value  = "spot"
+          effect = "NO_SCHEDULE"
+        }
+      } : {}
 
       tags = merge(var.tags, {
-        Name = "${var.cluster_name}-ng"
+        Name        = "${var.cluster_name}-ng"
+        CapacityType = local.spot_instance_config.capacity_type
       })
     }
   }
@@ -73,6 +84,18 @@ module "eks" {
     }
   }
 
+
+  # NOTE: v21 module exposes simplified logging & encryption inputs; unsupported attributes were removed.
+  # To reuse an existing CloudWatch log group:
+  # 1. Keep create_cloudwatch_log_group = false
+  # 2. Import existing group: terraform import module.eks.aws_cloudwatch_log_group.this[0] /aws/eks/${var.cluster_name}/cluster
+  # 3. (Optional) Set retention after import via 'aws logs put-retention-policy' or module variable if later supported.
+  create_cloudwatch_log_group = false
+
+  # To manage encryption with an existing KMS key:
+  # - The module will attempt to create one if create_kms_key = true (needs kms:Create* permissions)
+  # - If you already have a key, set create_kms_key = false and import the key to state (outside module) or allow AWS default EKS-managed key.
+  create_kms_key = false
 
   tags = var.tags
 }

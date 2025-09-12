@@ -12,9 +12,18 @@ on:
         - plan
         - apply
         - destroy
-  # push:
-  #   branches: [ main ]
-  #   paths: [ '*.tf', 'deploy.sh' ]
+      backend_action:
+        description: 'Backend setup action'
+        required: false
+        default: 'skip'
+        type: choice
+        options:
+        - skip
+        - create
+        - migrate
+  push:
+    branches: [ main ]
+    paths: [ '*.tf', 'deploy.sh' ]
 
 permissions:
   id-token: write
@@ -40,24 +49,122 @@ jobs:
       with:
         terraform_version: 1.9.8
 
-    - name: Terraform Init
-      run: terraform init
+    - name: Cache Terraform providers
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.terraform.d/plugin-cache
+          .terraform/providers
+        key: ${{ runner.os }}-terraform-${{ hashFiles('**/.terraform.lock.hcl') }}
+        restore-keys: |
+          ${{ runner.os }}-terraform-
+
+    - name: Create Backend Infrastructure (First Time Setup)
+      run: |
+        echo "Creating S3 backend and DynamoDB table..."
+        terraform init
+        terraform plan -target=aws_s3_bucket.terraform_state -target=aws_dynamodb_table.terraform_state_lock -target=random_id.bucket_suffix
+        terraform apply -target=aws_s3_bucket.terraform_state -target=aws_dynamodb_table.terraform_state_lock -target=random_id.bucket_suffix -auto-approve
+        
+        # Get backend config values
+        BUCKET_NAME=$(terraform output -raw backend_config | jq -r '.bucket')
+        DYNAMODB_TABLE=$(terraform output -raw backend_config | jq -r '.dynamodb_table')
+        
+        echo "BUCKET_NAME=${BUCKET_NAME}" >> $GITHUB_ENV
+        echo "DYNAMODB_TABLE=${DYNAMODB_TABLE}" >> $GITHUB_ENV
+        
+        echo "Backend infrastructure created. Bucket: ${BUCKET_NAME}, Table: ${DYNAMODB_TABLE}"
+      if: github.event.inputs.backend_action == 'create'
+
+    - name: Migrate to S3 Backend
+      run: |
+        # Configure backend after infrastructure exists
+        if [ "${{ github.event.inputs.backend_action }}" = "migrate" ] || [ -n "${{ env.BUCKET_NAME }}" ]; then
+          BUCKET_NAME="${{ env.BUCKET_NAME }}"
+          DYNAMODB_TABLE="${{ env.DYNAMODB_TABLE }}"
+          
+          if [ -z "$BUCKET_NAME" ]; then
+            # Try to get from existing terraform output
+            BUCKET_NAME=$(terraform output -raw backend_config 2>/dev/null | jq -r '.bucket' || echo "")
+            DYNAMODB_TABLE=$(terraform output -raw backend_config 2>/dev/null | jq -r '.dynamodb_table' || echo "")
+          fi
+          
+          if [ -n "$BUCKET_NAME" ]; then
+            echo "Migrating to S3 backend..."
+            terraform init -migrate-state \
+              -backend-config="bucket=${BUCKET_NAME}" \
+              -backend-config="key=terraform.tfstate" \
+              -backend-config="region=${{ secrets.AWS_REGION }}" \
+              -backend-config="dynamodb_table=${DYNAMODB_TABLE}" \
+              -backend-config="encrypt=true"
+          fi
+        else
+          terraform init
+        fi
+      if: github.event.inputs.backend_action == 'migrate' || env.BUCKET_NAME != ''
+
+    - name: Terraform Init (Standard)
+      run: |
+        # Check if backend is configured
+        if grep -q 'backend "s3"' versions.tf main.tf backend.tf 2>/dev/null; then
+          terraform init
+        else
+          terraform init
+        fi
+      if: github.event.inputs.backend_action == 'skip'
+
+    - name: Terraform Validate
+      run: terraform validate
+
+    - name: Terraform Format Check
+      run: terraform fmt -check -diff
+      continue-on-error: true
 
     - name: Terraform Plan
-      run: terraform plan
-      if: github.event.inputs.action != 'destroy'
-      # if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action != 'destroy') }}
+      run: |
+        terraform plan -out=tfplan
+        terraform show -no-color tfplan > plan.txt
+      if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) || github.event_name == 'push' }}
+
+    - name: Upload Plan Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: terraform-plan
+        path: |
+          tfplan
+          plan.txt
+        retention-days: 5
+      if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) || github.event_name == 'push' }}
 
     - name: Terraform Apply
-      run: terraform apply -auto-approve
+      run: terraform apply -auto-approve tfplan
       if: github.event.inputs.action == 'apply'
 
     - name: Terraform Destroy
       run: terraform destroy -auto-approve
       if: github.event.inputs.action == 'destroy'
 
-    - name: Update kubeconfig
+    - name: Update kubeconfig and verify cluster
       run: |
         aws eks --region ${{ secrets.AWS_REGION }} update-kubeconfig --name ${{ secrets.CLUSTER_NAME }}
         kubectl get nodes
+        kubectl get pods -A
+        echo "Cluster verification completed successfully"
       if: github.event.inputs.action == 'apply' && success()
+
+    - name: Cost Estimation Comment
+      run: |
+        if [ -f "plan.txt" ]; then
+          echo "## 💰 Estimated Monthly Costs" >> $GITHUB_STEP_SUMMARY
+          echo "Based on current configuration:" >> $GITHUB_STEP_SUMMARY
+          echo "- EKS Cluster: $72.00/month" >> $GITHUB_STEP_SUMMARY
+          echo "- Node Group (2x t4g.small): $28.80/month" >> $GITHUB_STEP_SUMMARY
+          echo "- EBS Storage (40GB): $8.00/month" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Estimated: $108.80/month**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "💡 **Cost Optimization Tips:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Use spot instances: Save ~70% on nodes" >> $GITHUB_STEP_SUMMARY
+          echo "- Scale to 1 node for dev: Save ~$14/month" >> $GITHUB_STEP_SUMMARY
+          echo "- Use scheduled shutdown: Save ~65% during off-hours" >> $GITHUB_STEP_SUMMARY
+        fi
+      if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) }}

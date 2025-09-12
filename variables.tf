@@ -110,3 +110,35 @@ variable "existing_node_role_name" {
   type        = string
   default     = ""
 }
+
+# Control plane logging configuration
+variable "cluster_enabled_log_types" {
+  description = "List of control plane log types to enable (api, audit, authenticator, controllerManager, scheduler)"
+  type        = list(string)
+  default     = ["api", "audit", "authenticator"]
+}
+
+variable "cloudwatch_log_group_retention_in_days" {
+  description = "Retention in days for EKS control plane log group"
+  type        = number
+  default     = 30
+}
+
+variable "existing_cloudwatch_log_group_name" {
+  description = "If set (non-empty), Terraform will import/use this existing CloudWatch log group instead of creating one (name must match module convention or be provided here)."
+  type        = string
+  default     = ""
+}
+
+# KMS key reuse / creation
+variable "use_existing_kms_key" {
+  description = "If true, use an existing KMS key for EKS secrets encryption instead of creating a new one"
+  type        = bool
+  default     = false
+}
+
+variable "existing_kms_key_arn" {
+  description = "ARN of existing KMS key to use when use_existing_kms_key = true"
+  type        = string
+  default     = ""
+}

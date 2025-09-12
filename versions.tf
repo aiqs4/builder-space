@@ -14,7 +14,14 @@ terraform {
       source  = "hashicorp/helm"
       version = "~> 2.13"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
+
+  # Backend configuration will be added after initial setup
+  # Run terraform init with backend-config parameters
 }
 
 provider "aws" {
