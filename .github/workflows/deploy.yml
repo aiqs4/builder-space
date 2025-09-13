@@ -12,14 +12,14 @@ on:
         - plan
         - apply
         - destroy
-  push:
-    branches: [ main ]
-    paths: [ 
-      '*.tf', 
-      'modules/**/*.tf',
-      'deploy.sh',
-      '.github/workflows/deploy.yml'
-    ]
+  # push:
+  #   branches: [ main ]
+  #   paths: [ 
+  #     '*.tf', 
+  #     'modules/**/*.tf',
+  #     'deploy.sh',
+  #     '.github/workflows/deploy.yml'
+  #   ]
 
 permissions:
   id-token: write
