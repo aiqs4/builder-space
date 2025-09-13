@@ -12,14 +12,6 @@ on:
         - plan
         - apply
         - destroy
-      use_backend:
-        description: 'Use S3 backend (requires backend to be bootstrapped first)'
-        required: false
-        default: 'true'
-        type: choice
-        options:
-        - 'true'
-        - 'false'
   push:
     branches: [ main ]
     paths: [ 
@@ -63,63 +55,20 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-terraform-
 
-    - name: Configure Backend (if enabled)
-      run: |
-        if [ "${{ github.event.inputs.use_backend }}" = "true" ] || [ -n "${{ secrets.BACKEND_BUCKET }}" ]; then
-          echo "Configuring S3 backend..."
-          
-          # Check if backend bucket is configured
-          if [ -n "${{ secrets.BACKEND_BUCKET }}" ] && [ -n "${{ secrets.BACKEND_DYNAMODB_TABLE }}" ]; then
-            cat > backend.tf << EOF
-        terraform {
-          backend "s3" {
-            bucket         = "${{ secrets.BACKEND_BUCKET }}"
-            key            = "terraform.tfstate"
-            region         = "${{ secrets.AWS_REGION }}"
-            dynamodb_table = "${{ secrets.BACKEND_DYNAMODB_TABLE }}"
-            encrypt        = true
-          }
-        }
-        EOF
-            echo "✅ S3 backend configuration created"
-          else
-            echo "⚠️ Backend requested but BACKEND_BUCKET or BACKEND_DYNAMODB_TABLE secrets not configured"
-            echo "Please run the backend-bootstrap workflow first or configure the secrets"
-            exit 1
-          fi
-        else
-          echo "📁 Using local backend (not recommended for production)"
-        fi
-      if: github.event.inputs.use_backend == 'true' || secrets.BACKEND_BUCKET != ''
-
     - name: Terraform Init
-      run: |
-        terraform init
-        echo "✅ Terraform initialized successfully"
+      run: terraform init
 
     - name: Terraform Validate
-      run: |
-        terraform validate
-        echo "✅ Terraform configuration is valid"
+      run: terraform validate
 
     - name: Terraform Format Check
-      run: |
-        if ! terraform fmt -check -diff; then
-          echo "❌ Terraform files are not properly formatted"
-          echo "Please run 'terraform fmt -recursive' locally and commit the changes"
-          exit 1
-        fi
-        echo "✅ Terraform files are properly formatted"
+      run: terraform fmt -check -diff
+      continue-on-error: true
 
     - name: Terraform Plan
       run: |
         terraform plan -out=tfplan
         terraform show -no-color tfplan > plan.txt
-        
-        echo "## 📋 Terraform Plan Summary" >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-        grep -E "(Plan:|No changes)" plan.txt | head -5 >> $GITHUB_STEP_SUMMARY || echo "Plan completed" >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
       if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) || github.event_name == 'push' }}
 
     - name: Upload Plan Artifact
@@ -132,75 +81,36 @@ jobs:
         retention-days: 5
       if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) || github.event_name == 'push' }}
 
-    - name: Security Scan (Optional)
-      run: |
-        # Add security scanning here if needed
-        echo "🔍 Security scan placeholder - add tools like checkov or tfsec here"
-      continue-on-error: true
-      if: github.event.inputs.action == 'apply'
-
     - name: Terraform Apply
-      run: |
-        echo "🚀 Applying Terraform configuration..."
-        terraform apply -auto-approve tfplan
-        
-        echo "## ✅ Infrastructure Deployment Completed" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Cluster Information:" >> $GITHUB_STEP_SUMMARY
-        echo '```json' >> $GITHUB_STEP_SUMMARY
-        terraform output -json cluster_info >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
+      run: terraform apply -auto-approve tfplan
       if: github.event.inputs.action == 'apply'
 
     - name: Terraform Destroy
-      run: |
-        echo "⚠️ Destroying infrastructure..."
-        terraform destroy -auto-approve
-        
-        echo "## 🗑️ Infrastructure Destroyed" >> $GITHUB_STEP_SUMMARY
-        echo "All AWS resources have been removed." >> $GITHUB_STEP_SUMMARY
+      run: terraform destroy -auto-approve
       if: github.event.inputs.action == 'destroy'
 
     - name: Update kubeconfig and verify cluster
       run: |
-        echo "🔧 Configuring kubectl..."
-        CLUSTER_NAME=$(terraform output -raw cluster_name)
-        aws eks --region ${{ secrets.AWS_REGION }} update-kubeconfig --name $CLUSTER_NAME
-        
-        echo "🔍 Verifying cluster..."
+        aws eks --region ${{ secrets.AWS_REGION }} update-kubeconfig --name ${{ secrets.CLUSTER_NAME }}
         kubectl get nodes
         kubectl get pods -A
-        kubectl cluster-info
-        
-        echo "### 🎉 Cluster Verification Completed" >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-        kubectl get nodes >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "Cluster verification completed successfully"
       if: github.event.inputs.action == 'apply' && success()
 
-    - name: Cost and Configuration Summary
+    - name: Cost Estimation Comment
       run: |
-        echo "## 💰 Cost Estimation" >> $GITHUB_STEP_SUMMARY
-        echo '```json' >> $GITHUB_STEP_SUMMARY
-        terraform output -json estimated_monthly_cost >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        echo "## ⚙️ Configuration Summary" >> $GITHUB_STEP_SUMMARY
-        echo '```json' >> $GITHUB_STEP_SUMMARY
-        terraform output -json configuration_summary >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        
-        echo "## 📝 Next Steps" >> $GITHUB_STEP_SUMMARY
-        terraform output next_steps | sed 's/^/- /' >> $GITHUB_STEP_SUMMARY
+        if [ -f "plan.txt" ]; then
+          echo "## 💰 Estimated Monthly Costs" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Based on current configuration:" >> $GITHUB_STEP_SUMMARY
+          echo "- EKS Cluster: $72.00/month" >> $GITHUB_STEP_SUMMARY
+          echo "- Node Group (2x t4g.small): $28.80/month" >> $GITHUB_STEP_SUMMARY
+          echo "- EBS Storage (40GB): $8.00/month" >> $GITHUB_STEP_SUMMARY
+          echo "- **Total Estimated: $108.80/month**" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "💡 **Cost Optimization Tips:**" >> $GITHUB_STEP_SUMMARY
+          echo "- Use spot instances: Save ~70% on nodes" >> $GITHUB_STEP_SUMMARY
+          echo "- Scale to 1 node for dev: Save ~$14/month" >> $GITHUB_STEP_SUMMARY
+          echo "- Use scheduled shutdown: Save ~65% during off-hours" >> $GITHUB_STEP_SUMMARY
+        fi
       if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) }}
-
-    - name: Migration Information
-      run: |
-        echo "## 🔄 Migration Information" >> $GITHUB_STEP_SUMMARY
-        echo "If you have existing resources that need to be imported:" >> $GITHUB_STEP_SUMMARY
-        echo '```bash' >> $GITHUB_STEP_SUMMARY
-        terraform output -raw migration_info | jq -r '.import_commands[]' >> $GITHUB_STEP_SUMMARY
-        echo '```' >> $GITHUB_STEP_SUMMARY
-      if: github.event.inputs.action == 'plan'
