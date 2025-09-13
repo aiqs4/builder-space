@@ -11,7 +11,7 @@ output "backend_config" {
 
 output "backend_configuration_commands" {
   description = "Commands to configure the backend"
-  value = [
+  value = join("\n", [
     "# Add this to your terraform block:",
     "terraform {",
     "  backend \"s3\" {",
@@ -25,7 +25,7 @@ output "backend_configuration_commands" {
     "",
     "# Then run:",
     "terraform init -backend-config=\"bucket=${aws_s3_bucket.terraform_state.bucket}\" -backend-config=\"dynamodb_table=${aws_dynamodb_table.terraform_state_lock.name}\""
-  ]
+  ])
 }
 
 output "bucket_name" {

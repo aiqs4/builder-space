@@ -66,7 +66,7 @@ terraform apply
 
 ### 3. Configure kubectl
 ```bash
-aws eks --region af-south-1 update-kubeconfig --name funda
+aws eks --region af-south-1 update-kubeconfig --name builder-space
 kubectl get nodes
 ```
 
@@ -279,7 +279,7 @@ terraform apply
 terraform output kubectl_config_command
 
 # Run the command (example):
-aws eks --region af-south-1 update-kubeconfig --name builder-space-dev
+aws eks --region af-south-1 update-kubeconfig --name builder-space
 ```
 
 5. **Verify deployment**:
@@ -350,7 +350,7 @@ kubectl top pods -A
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `aws_region` | `af-south-1` | AWS region for deployment |
-| `cluster_name` | `builder-space-dev` | EKS cluster name |
+| `cluster_name` | `builder-space` | EKS cluster name |
 | `cluster_version` | `1.28` | Kubernetes version |
 | `node_instance_types` | `["t4g.small", "t3.small"]` | Instance types (ARM preferred) |
 | `node_desired_size` | `2` | Number of nodes |
@@ -407,7 +407,7 @@ kubectl describe node <node-name>
 Keep the cluster updated:
 ```bash
 # Check for available updates
-aws eks describe-cluster --name builder-space-dev --query cluster.version
+aws eks describe-cluster --name builder-space --query cluster.version
 
 # Update cluster (modify variables.tf and apply)
 terraform plan

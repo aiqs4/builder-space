@@ -12,7 +12,7 @@ echo -e "${BLUE}🧪 Builder Space EKS Test Script${NC}"
 echo -e "${BLUE}===============================${NC}"
 
 # Get cluster info
-CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "builder-space-dev")
+CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "builder-space")
 REGION=$(terraform output -raw region 2>/dev/null || echo "af-south-1")
 
 echo -e "${YELLOW}🔍 Testing EKS cluster: ${CLUSTER_NAME}${NC}"

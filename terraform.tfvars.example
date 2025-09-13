@@ -5,7 +5,7 @@
 aws_region = "af-south-1"
 
 # EKS Cluster Configuration
-cluster_name    = "builder-space-dev"
+cluster_name    = "builder-space"
 cluster_version = "1.28"
 
 # Node Group Configuration

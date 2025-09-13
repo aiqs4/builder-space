@@ -2,23 +2,38 @@
 # This file orchestrates the modular infrastructure setup
 
 terraform {
-  # Terraform backend configuration will be added after backend bootstrap
-  # See backend-bootstrap.yml workflow for initial setup
+  required_version = ">= 1.11"
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "~> 6.0"
     }
     kubernetes = {
       source  = "hashicorp/kubernetes"
-      version = "~> 2.23"
+      version = "~> 2.30"
     }
     helm = {
       source  = "hashicorp/helm"
-      version = "~> 2.12"
+      version = "~> 2.13"
+    }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
     }
   }
-  required_version = ">= 1.0"
+
+  # Backend configuration - update bucket and table names after bootstrap
+  backend "s3" {
+    bucket         = "builder-space-terraform-state-af-south-1"
+    # bucket         = "${var.cluster_name}-terraform-state-${var.aws_region}" --- IGNORE ---
+    key            = "terraform.tfstate"
+    region         = "af-south-1"
+    use_lockfile = true
+    # TODO: delete the dynamo db deployment
+    # dynamodb_table = "${var.cluster_name}-terraform-state-lock"
+    encrypt        = true
+  }
 }
 
 # Provider configurations
@@ -26,7 +41,35 @@ provider "aws" {
   region = var.aws_region
 
   default_tags {
-    tags = local.common_tags
+    tags = merge(local.common_tags, {
+      Project     = "builder-space-eks"
+      Environment = "development"
+      ManagedBy   = "terraform"
+    })
+  }
+}
+
+provider "kubernetes" {
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+  }
+}
+
+provider "helm" {
+  kubernetes {
+    host                   = module.eks.cluster_endpoint
+    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+
+    exec {
+      api_version = "client.authentication.k8s.io/v1beta1"
+      command     = "aws"
+      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+    }
   }
 }
 
@@ -74,33 +117,6 @@ module "iam" {
   use_existing_node_role     = var.use_existing_node_role
   existing_node_role_name    = var.existing_node_role_name
   tags                       = local.common_tags
-}
-
-# Configure Kubernetes provider
-provider "kubernetes" {
-  host                   = module.eks.cluster_endpoint
-  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-
-  exec {
-    api_version = "client.authentication.k8s.io/v1beta1"
-    command     = "aws"
-    # This requires the awscli to be installed locally where Terraform is run
-    args = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-  }
-}
-
-# Configure Helm provider
-provider "helm" {
-  kubernetes {
-    host                   = module.eks.cluster_endpoint
-    cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
-
-    exec {
-      api_version = "client.authentication.k8s.io/v1beta1"
-      command     = "aws"
-      args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
-    }
-  }
 }
 
 # EKS Module

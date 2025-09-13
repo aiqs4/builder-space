@@ -8,10 +8,10 @@ terraform {
       source  = "hashicorp/aws"
       version = "~> 5.0"
     }
-    random = {
-      source  = "hashicorp/random"
-      version = "~> 3.0"
-    }
+    # random = {
+    #   source  = "hashicorp/random"
+    #   version = "~> 3.0"
+    # }
   }
 }
 
@@ -22,7 +22,7 @@ resource "random_id" "bucket_suffix" {
 
 # S3 bucket for Terraform state with encryption
 resource "aws_s3_bucket" "terraform_state" {
-  bucket = "${var.cluster_name}-terraform-state-${random_id.bucket_suffix.hex}"
+  bucket = "${var.cluster_name}-terraform-state-${var.aws_region}"
 
   tags = merge(var.tags, {
     Name        = "${var.cluster_name}-terraform-state"
