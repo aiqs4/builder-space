@@ -1,0 +1,189 @@
+name: Bootstrap Terraform Backend
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Backend action to perform'
+        required: true
+        default: 'plan'
+        type: choice
+        options:
+        - plan
+        - apply
+        - destroy
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  backend-bootstrap:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v4
+
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region: ${{ secrets.AWS_REGION }}
+
+    - name: Setup Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.9.8
+
+    - name: Cache Terraform providers
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.terraform.d/plugin-cache
+          .terraform/bootstrap
+        key: ${{ runner.os }}-terraform-bootstrap-${{ hashFiles('bootstrap/**/*.tf') }}
+        restore-keys: |
+          ${{ runner.os }}-terraform-bootstrap-
+
+    - name: Create Bootstrap Configuration
+      run: |
+        mkdir -p bootstrap
+        cat > bootstrap/main.tf << 'EOF'
+        terraform {
+          required_providers {
+            aws = {
+              source  = "hashicorp/aws"
+              version = "~> 5.0"
+            }
+            random = {
+              source  = "hashicorp/random"
+              version = "~> 3.0"
+            }
+          }
+        }
+
+        module "backend_bootstrap" {
+          source = "../modules/backend-bootstrap"
+          
+          cluster_name = var.cluster_name
+          aws_region   = var.aws_region
+          tags         = var.tags
+        }
+
+        output "backend_config" {
+          description = "Backend configuration for main infrastructure"
+          value       = module.backend_bootstrap.backend_config
+        }
+
+        output "backend_configuration_commands" {
+          description = "Commands to configure the backend"
+          value       = module.backend_bootstrap.backend_configuration_commands
+        }
+
+        output "bucket_name" {
+          description = "S3 bucket name for state storage"
+          value       = module.backend_bootstrap.bucket_name
+        }
+
+        output "dynamodb_table_name" {
+          description = "DynamoDB table name for state locking"
+          value       = module.backend_bootstrap.dynamodb_table_name
+        }
+        EOF
+
+        cat > bootstrap/variables.tf << 'EOF'
+        variable "cluster_name" {
+          description = "Name of the EKS cluster"
+          type        = string
+          default     = "funda"
+        }
+
+        variable "aws_region" {
+          description = "AWS region for resources"
+          type        = string
+          default     = "af-south-1"
+        }
+
+        variable "tags" {
+          description = "Additional tags for resources"
+          type        = map(string)
+          default = {
+            Project     = "builder-space-eks"
+            Environment = "development"
+            CostCenter  = "development"
+          }
+        }
+        EOF
+
+    - name: Terraform Init (Bootstrap)
+      run: |
+        cd bootstrap
+        terraform init
+
+    - name: Terraform Validate (Bootstrap)
+      run: |
+        cd bootstrap
+        terraform validate
+
+    - name: Terraform Format Check (Bootstrap)
+      run: |
+        cd bootstrap
+        terraform fmt -check -diff
+      continue-on-error: true
+
+    - name: Terraform Plan (Bootstrap)
+      run: |
+        cd bootstrap
+        terraform plan -out=tfplan
+        terraform show -no-color tfplan > plan.txt
+      if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) }}
+
+    - name: Upload Bootstrap Plan Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: backend-bootstrap-plan
+        path: |
+          bootstrap/tfplan
+          bootstrap/plan.txt
+        retention-days: 5
+      if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) }}
+
+    - name: Terraform Apply (Bootstrap)
+      run: |
+        cd bootstrap
+        terraform apply -auto-approve tfplan
+        
+        echo "## 🚀 Backend Bootstrap Completed" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Backend Configuration:" >> $GITHUB_STEP_SUMMARY
+        echo '```json' >> $GITHUB_STEP_SUMMARY
+        terraform output -json backend_config >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
+        echo "1. Record the bucket and table names above" >> $GITHUB_STEP_SUMMARY
+        echo "2. Update GitHub secrets with these values if needed" >> $GITHUB_STEP_SUMMARY
+        echo "3. Run the main infrastructure pipeline with backend migration" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Migration Commands:" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        terraform output -raw backend_configuration_commands | head -15 >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+      if: github.event.inputs.action == 'apply'
+
+    - name: Terraform Destroy (Bootstrap)
+      run: |
+        cd bootstrap
+        terraform destroy -auto-approve
+        echo "⚠️ Backend infrastructure destroyed. State files will be lost!" >> $GITHUB_STEP_SUMMARY
+      if: github.event.inputs.action == 'destroy'
+
+    - name: Cost Information
+      run: |
+        echo "## 💰 Backend Infrastructure Costs" >> $GITHUB_STEP_SUMMARY
+        echo "- S3 Bucket: ~$0.023/GB/month (minimal for state files)" >> $GITHUB_STEP_SUMMARY
+        echo "- DynamoDB Table: Pay-per-request (minimal for state locking)" >> $GITHUB_STEP_SUMMARY
+        echo "- **Estimated Monthly Cost: <$1.00**" >> $GITHUB_STEP_SUMMARY
+      if: github.event.inputs.action == 'apply'

@@ -1,53 +1,258 @@
-# Builder Space - Low-Cost Amazon EKS Cluster
+# Builder Space - Modular EKS Development Environment
 
-This repository provides Terraform infrastructure for provisioning a cost-optimized Amazon EKS cluster in South Africa (af-south-1) for development purposes.
+A cost-optimized, modular Terraform setup for AWS EKS development environments with separated backend management and comprehensive cost-saving features.
 
 ## 🎯 Overview
 
 This infrastructure creates:
+- **Modular Architecture**: Separated modules for vpc, iam, eks, addons
+- **Backend Bootstrap**: Separate S3 + DynamoDB backend management
+- **Cost Optimization**: Spot instances, scaling options, and resource optimization
+- **Safe Migration**: Import existing resources without recreation
 - **EKS Cluster**: Managed Kubernetes control plane
-- **Node Group**: 2-node managed node group using ARM-based t4g.small instances
-- **VPC**: Public subnets configuration (no NAT Gateway for cost savings)
-- **Networking**: Direct internet access for pods
-- **Add-ons**: metrics-server, VPC CNI, CoreDNS, kube-proxy, EBS CSI driver
-- **Testing**: Sample deployment to verify internet connectivity
-
-## 💰 Cost Optimization
-
-**Target Monthly Cost: < $100 USD**
-
-Estimated breakdown:
-- EKS Cluster: ~$72/month ($0.10/hour)
-- Node Group (2 x t4g.small): ~$29/month ($0.0192/hour each in af-south-1)
-- EBS Storage (40GB total): ~$8/month ($0.20/GB/month)
-- **Total: ~$109/month**
-
-Cost-saving features:
-- ✅ ARM-based instances (t4g.small) for better price/performance
-- ✅ Public subnets only (no NAT Gateway costs)
-- ✅ Minimal node count (2 nodes)
-- ✅ Small EBS volumes (20GB per node)
-- ✅ South Africa region for proximity
+- **Node Group**: ARM-based instances with cost optimization options
+- **VPC**: Public subnets configuration optimized for development
+- **Add-ons**: metrics-server, test deployments, optional load balancer controller
 
 ## 🚀 Quick Start
 
 ### Prerequisites
+- AWS CLI configured with appropriate permissions
+- Terraform >= 1.0 installed  
+- kubectl installed
 
-1. **AWS CLI** configured with appropriate credentials
-2. **Terraform** (>= 1.0)
-3. **kubectl** for cluster management
+### 1. Bootstrap Backend (First Time Only)
+The backend infrastructure (S3 bucket + DynamoDB table) must be created before deploying the main infrastructure.
 
-### Deployment Options
+**Via GitHub Actions (Recommended):**
+1. Go to Actions → "Bootstrap Terraform Backend" → Run workflow
+2. Choose "apply" to create the backend
+3. Record the bucket and table names from the output
+4. Add them to repository secrets: `BACKEND_BUCKET` and `BACKEND_DYNAMODB_TABLE`
 
-#### Option 1: GitHub Actions (Recommended)
-See `GITHUB_ACTIONS.md` for OIDC setup, then deploy via Actions workflow.
-
-#### Option 2: Local Deployment
-
-1. **Clone and navigate to the repository**:
+**Locally:**
 ```bash
-git clone <repository-url>
-cd builder-space
+cd bootstrap
+terraform init
+terraform apply
+# Record the output values
+```
+
+### 2. Deploy Main Infrastructure
+**Via GitHub Actions:**
+1. Go to Actions → "Deploy EKS Infrastructure" → Run workflow  
+2. Ensure "Use S3 backend" is true
+3. Choose "apply" to deploy
+
+**Locally:**
+```bash
+# Configure backend first (using values from step 1)
+cat > backend.tf << EOF
+terraform {
+  backend "s3" {
+    bucket         = "your-bucket-name"
+    key            = "terraform.tfstate"
+    region         = "af-south-1"
+    dynamodb_table = "your-table-name"
+    encrypt        = true
+  }
+}
+EOF
+
+terraform init
+terraform plan
+terraform apply
+```
+
+### 3. Configure kubectl
+```bash
+aws eks --region af-south-1 update-kubeconfig --name funda
+kubectl get nodes
+```
+
+## 📁 Architecture
+
+### Modular Structure
+```
+modules/
+├── backend-bootstrap/    # S3 + DynamoDB for Terraform state
+├── vpc/                 # VPC, subnets, security groups  
+├── iam/                 # IAM roles and policies
+├── eks/                 # EKS cluster and node groups
+└── addons/              # Kubernetes add-ons and applications
+```
+
+### Workflows
+- **Backend Bootstrap** (`.github/workflows/backend-bootstrap.yml`): Creates state storage infrastructure
+- **Main Infrastructure** (`.github/workflows/deploy.yml`): Deploys EKS and supporting resources
+
+## 💰 Cost Optimization
+
+### Baseline Cost (~$109/month)
+- **EKS Cluster**: $72.00/month ($0.10/hour)
+- **Node Group**: $28.80/month (2x t4g.small on-demand)
+- **EBS Storage**: $8.00/month (40GB total)
+
+### Cost-Saving Features (Disabled by Default)
+```hcl
+# Enable spot instances for ~70% savings on nodes
+enable_spot_instances = true
+
+# Enable scheduled scaling for dev environments  
+enable_scheduled_scaling = true
+scheduled_scale_down_time = "0 18 * * 1-5"  # 6 PM weekdays
+scheduled_scale_up_time = "0 8 * * 1-5"     # 8 AM weekdays
+
+# Enable cluster autoscaler
+enable_cluster_autoscaler = true
+```
+
+**With Spot Instances**: ~$88/month (~$21/month savings)
+
+## 🔄 Migration from Previous Setup
+
+If you have an existing deployment, see [MIGRATION.md](MIGRATION.md) for detailed migration instructions including:
+- How to import existing resources safely
+- Step-by-step backend migration process  
+- Cost optimization configuration
+- Troubleshooting guide
+
+## 🔧 Configuration Options
+
+### Using Existing Resources
+To avoid recreating existing AWS resources:
+
+```hcl
+# Use existing IAM roles
+use_existing_cluster_role = true
+existing_cluster_role_name = "your-cluster-role-name"
+
+use_existing_node_role = true  
+existing_node_role_name = "your-node-role-name"
+
+# Use existing CloudWatch log group
+existing_cloudwatch_log_group_name = "/aws/eks/your-cluster/cluster"
+
+# Use existing KMS key
+use_existing_kms_key = true
+existing_kms_key_arn = "arn:aws:kms:region:account:key/key-id"
+```
+
+### Cost Optimization Variables
+```hcl
+# Spot instances (disabled by default)
+enable_spot_instances = false
+
+# Scheduled scaling (disabled by default)
+enable_scheduled_scaling = false
+scheduled_scale_down_time = "0 18 * * 1-5"
+scheduled_scale_up_time = "0 8 * * 1-5"
+
+# Cluster autoscaler (disabled by default)
+enable_cluster_autoscaler = false
+
+# Cost monitoring
+enable_cost_monitoring = true
+cost_alert_threshold = 100
+```
+
+## 📋 Verification
+
+After deployment, verify your cluster:
+
+```bash
+# Check cluster status
+kubectl cluster-info
+kubectl get nodes
+
+# Check system pods
+kubectl get pods -n kube-system
+
+# Test internet connectivity  
+kubectl logs -n test deployment/test-internet-app
+
+# Check resource usage
+kubectl top nodes
+kubectl top pods -A
+```
+
+## 🗑️ Cleanup
+
+To avoid ongoing charges, destroy resources when finished:
+
+```bash
+# Via GitHub Actions
+# Actions → "Deploy EKS Infrastructure" → Run workflow → Destroy
+
+# Or locally
+terraform destroy
+
+# Optionally destroy backend (WARNING: This will delete state storage)
+# Actions → "Bootstrap Terraform Backend" → Run workflow → Destroy
+```
+
+## 📖 Documentation
+
+- [Migration Guide](MIGRATION.md) - Migrating from previous setup
+- [Cost Optimization](COST_OPTIMIZATION.md) - Detailed cost optimization strategies  
+- [GitHub Actions Setup](GITHUB_ACTIONS.md) - OIDC configuration
+- [Quick Start](QUICKSTART.md) - Step-by-step deployment guide
+
+## 🔍 Monitoring & Troubleshooting
+
+### Cost Monitoring
+Set up AWS billing alerts:
+- Warning at $50/month
+- Critical at $75/month
+- Emergency shutdown at $100/month
+
+### Common Issues
+1. **Backend not found**: Run backend bootstrap workflow first
+2. **Resource conflicts**: Use `use_existing_*` variables or import resources
+3. **Permission errors**: Check IAM permissions for GitHub OIDC role
+4. **Nodes not ready**: Wait 5-10 minutes for initialization
+
+### Getting Help
+- Check workflow logs in GitHub Actions
+- Use `terraform output migration_info` for import commands
+- Review `terraform output configuration_summary` for current setup
+- See troubleshooting section in [MIGRATION.md](MIGRATION.md)
+
+## 🏗️ Architecture Benefits
+
+### Modular Design
+- **Separation of Concerns**: Each module has a specific responsibility
+- **Reusability**: Modules can be used independently or in other projects
+- **Maintainability**: Easier to understand, modify, and troubleshoot
+- **Testing**: Each module can be tested independently
+
+### Backend Separation  
+- **Safe State Management**: Backend infrastructure managed separately
+- **Conflict Prevention**: No circular dependencies between state storage and infrastructure
+- **Migration Safety**: Clear path for migrating existing resources
+- **Recovery**: State storage persists even if main infrastructure is destroyed
+
+### Cost Optimization
+- **Flexible Options**: Multiple cost-saving features available but disabled by default
+- **Free Tier Friendly**: Designed to work within AWS free tier limitations
+- **Transparent Costs**: Clear cost breakdown and optimization recommendations
+- **Gradual Adoption**: Enable optimizations as you become comfortable with the setup
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes with appropriate tests
+4. Update documentation as needed
+5. Submit a pull request
+
+## ⚠️ Important Notes
+
+- **Free Tier**: This setup is designed for development and may not fit within AWS free tier limits
+- **Production Use**: Additional security and reliability measures needed for production
+- **Cost Monitoring**: Always monitor AWS costs and set up billing alerts
+- **Resource Cleanup**: Remember to destroy resources when not in use to avoid charges
 ```
 
 2. **Configure variables** (optional):
