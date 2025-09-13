@@ -47,76 +47,6 @@ jobs:
         restore-keys: |
           ${{ runner.os }}-terraform-bootstrap-
 
-    - name: Create Bootstrap Configuration
-      run: |
-        mkdir -p bootstrap
-        cat > bootstrap/main.tf << 'EOF'
-        terraform {
-          required_providers {
-            aws = {
-              source  = "hashicorp/aws"
-              version = "~> 5.0"
-            }
-            random = {
-              source  = "hashicorp/random"
-              version = "~> 3.0"
-            }
-          }
-        }
-
-        module "backend_bootstrap" {
-          source = "../modules/backend-bootstrap"
-          
-          cluster_name = var.cluster_name
-          aws_region   = var.aws_region
-          tags         = var.tags
-        }
-
-        output "backend_config" {
-          description = "Backend configuration for main infrastructure"
-          value       = module.backend_bootstrap.backend_config
-        }
-
-        output "backend_configuration_commands" {
-          description = "Commands to configure the backend"
-          value       = module.backend_bootstrap.backend_configuration_commands
-        }
-
-        output "bucket_name" {
-          description = "S3 bucket name for state storage"
-          value       = module.backend_bootstrap.bucket_name
-        }
-
-        output "dynamodb_table_name" {
-          description = "DynamoDB table name for state locking"
-          value       = module.backend_bootstrap.dynamodb_table_name
-        }
-        EOF
-
-        cat > bootstrap/variables.tf << 'EOF'
-        variable "cluster_name" {
-          description = "Name of the EKS cluster"
-          type        = string
-          default     = "funda"
-        }
-
-        variable "aws_region" {
-          description = "AWS region for resources"
-          type        = string
-          default     = "af-south-1"
-        }
-
-        variable "tags" {
-          description = "Additional tags for resources"
-          type        = map(string)
-          default = {
-            Project     = "builder-space-eks"
-            Environment = "development"
-            CostCenter  = "development"
-          }
-        }
-        EOF
-
     - name: Terraform Init (Bootstrap)
       run: |
         cd bootstrap
@@ -179,11 +109,3 @@ jobs:
         terraform destroy -auto-approve
         echo "⚠️ Backend infrastructure destroyed. State files will be lost!" >> $GITHUB_STEP_SUMMARY
       if: github.event.inputs.action == 'destroy'
-
-    - name: Cost Information
-      run: |
-        echo "## 💰 Backend Infrastructure Costs" >> $GITHUB_STEP_SUMMARY
-        echo "- S3 Bucket: ~$0.023/GB/month (minimal for state files)" >> $GITHUB_STEP_SUMMARY
-        echo "- DynamoDB Table: Pay-per-request (minimal for state locking)" >> $GITHUB_STEP_SUMMARY
-        echo "- **Estimated Monthly Cost: <$1.00**" >> $GITHUB_STEP_SUMMARY
-      if: github.event.inputs.action == 'apply'
