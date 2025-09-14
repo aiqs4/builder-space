@@ -5,7 +5,3 @@ runtime:
   options:
     toolchain: pip
     virtualenv: venv
-config:
-  aws:region:
-    description: AWS region for resources
-    default: af-south-1
