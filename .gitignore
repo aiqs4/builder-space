@@ -1,34 +1,51 @@
-# Terraform files
-*.tfstate
-*.tfstate.*
-*.tfvars
-*.tfvars.json
-.terraform/
-.terraform.lock.hcl
-terraform.rc
-.terraformrc
+# Terraform (Legacy)
+terraform-legacy/.terraform/
+terraform-legacy/.terraform.lock.hcl
+terraform-legacy/*.tfstate
+terraform-legacy/*.tfstate.*
+terraform-legacy/*.tfvars
+terraform-legacy/.terraform.tfstate.lock.info
+terraform-legacy/plan.out
+terraform-legacy/tfplan
 
-# OS files
-.DS_Store
-Thumbs.db
+# Pulumi
+.pulumi/
+Pulumi.*.yaml.bak
+pulumi-state/
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
 
-# IDE files
+# IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+*~
 
-# Local configuration
-local.tf
-override.tf
-override.tf.json
-*_override.tf
-*_override.tf.json
-
-# Kubeconfig files
-kubeconfig*
-.kubeconfig*
-
-# Backup files
-*.backup
-*.bak*.zip\nLICENSE.txt\nterraform\nold_files/\nbackend.tf.old
+# OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

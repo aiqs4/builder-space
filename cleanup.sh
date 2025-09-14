@@ -8,39 +8,51 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
-echo -e "${RED}💥 Builder Space EKS Cleanup Script${NC}"
-echo -e "${RED}===================================${NC}"
+echo -e "${BLUE}🗑️ Builder Space EKS Cleanup Script${NC}"
+echo -e "${BLUE}===================================${NC}"
 
-# Get cluster info
-CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null || echo "builder-space-dev")
+# Check if Pulumi is installed
+if ! command -v pulumi &> /dev/null; then
+    echo -e "${RED}❌ Pulumi is required but not installed.${NC}"
+    echo "Please install Pulumi: https://www.pulumi.com/docs/get-started/install/"
+    exit 1
+fi
 
-echo -e "${YELLOW}⚠️  This will destroy the EKS cluster: ${CLUSTER_NAME}${NC}"
-echo -e "${YELLOW}⚠️  This action is irreversible!${NC}"
+# Activate virtual environment if it exists
+if [ -d "venv" ]; then
+    echo -e "${YELLOW}📦 Activating Python virtual environment...${NC}"
+    source venv/bin/activate
+fi
+
+echo -e "${YELLOW}📋 Current stack resources:${NC}"
+pulumi stack --show-urns 2>/dev/null || echo "No stack found or error occurred"
+
+echo ""
+echo -e "${RED}⚠️ WARNING: This will destroy ALL infrastructure resources!${NC}"
+echo -e "${RED}This includes:${NC}"
+echo "- EKS cluster and node groups"
+echo "- VPC and networking resources"
+echo "- IAM roles and policies (if created by this stack)"
+echo "- CloudWatch log groups"
+echo "- KMS keys (if created by this stack)"
 echo ""
 
-read -p "$(echo -e ${YELLOW}Are you sure you want to destroy the infrastructure? Type 'yes' to confirm: ${NC})" -r
-if [[ ! $REPLY == "yes" ]]; then
-    echo -e "${GREEN}✅ Cleanup cancelled.${NC}"
+read -p "$(echo -e ${RED}Are you sure you want to proceed? Type 'DELETE' to confirm: ${NC})" -r
+echo
+if [[ $REPLY != "DELETE" ]]; then
+    echo -e "${YELLOW}⏸️ Cleanup cancelled.${NC}"
     exit 0
 fi
 
-echo -e "${YELLOW}🧹 Starting cleanup process...${NC}"
-
-# Clean up any test resources first
-echo -e "${YELLOW}🗑️ Cleaning up test resources...${NC}"
-kubectl delete pod connectivity-test --ignore-not-found=true
-kubectl delete pod dns-test --ignore-not-found=true
-
-# Terraform destroy
-echo -e "${YELLOW}💥 Destroying Terraform infrastructure...${NC}"
-terraform destroy -auto-approve
+echo -e "${YELLOW}🗑️ Destroying infrastructure...${NC}"
+pulumi destroy --yes
 
 echo -e "${GREEN}✅ Infrastructure destroyed successfully!${NC}"
+
 echo ""
-echo -e "${BLUE}📋 Cleanup complete${NC}"
-echo "All AWS resources have been terminated."
-echo "Your AWS bill should reflect the removal of EKS resources within 24 hours."
+echo -e "${BLUE}📋 Manual cleanup (if needed):${NC}"
+echo "1. Check for any remaining AWS resources in the console"
+echo "2. Verify S3 state bucket is empty (if using S3 backend)"
+echo "3. Remove local state files if no longer needed"
 echo ""
-echo -e "${YELLOW}💡 Note: You may want to clean up kubectl config:${NC}"
-echo "kubectl config delete-context <context-name>"
-echo "kubectl config delete-cluster <cluster-name>"
+echo -e "${YELLOW}💰 Cost impact: All infrastructure costs should now be stopped${NC}"
