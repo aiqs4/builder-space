@@ -1,0 +1,6 @@
+name: builder-space-state-storage
+description: State storage bootstrap for Builder Space EKS
+runtime:
+  name: python
+  options:
+    toolchain: pip

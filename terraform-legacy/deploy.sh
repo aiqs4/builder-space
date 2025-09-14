@@ -11,8 +11,8 @@ NC='\033[0m' # No Color
 # Script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo -e "${BLUE}🚀 Builder Space EKS Pulumi Deployment Script${NC}"
-echo -e "${BLUE}=============================================${NC}"
+echo -e "${BLUE}🚀 Builder Space EKS Deployment Script${NC}"
+echo -e "${BLUE}=====================================${NC}"
 
 # Check prerequisites
 echo -e "${YELLOW}📋 Checking prerequisites...${NC}"
@@ -27,14 +27,14 @@ fi
 # Check kubectl
 if ! command -v kubectl &> /dev/null; then
     echo -e "${RED}❌ kubectl is required but not installed.${NC}"
-    echo "Please install kubectl: https://kubernetes.io/docs/tasks/tools/install-kubectl/"
+    echo "Please install kubectl: https://kubernetes.io/docs/tasks/tools/"
     exit 1
 fi
 
-# Check Pulumi
-if ! command -v pulumi &> /dev/null; then
-    echo -e "${RED}❌ Pulumi is required but not installed.${NC}"
-    echo "Please install Pulumi: https://www.pulumi.com/docs/get-started/install/"
+# Check Terraform
+if ! command -v terraform &> /dev/null; then
+    echo -e "${RED}❌ Terraform is required but not installed.${NC}"
+    echo "Please install Terraform: https://learn.hashicorp.com/tutorials/terraform/install-cli"
     exit 1
 fi
 
@@ -45,34 +45,32 @@ if ! aws sts get-caller-identity &> /dev/null; then
     exit 1
 fi
 
-echo -e "${GREEN}✅ Prerequisites check completed!${NC}"
+echo -e "${GREEN}✅ All prerequisites met!${NC}"
 
-# Set AWS region
-AWS_REGION=$(pulumi config get aws:region 2>/dev/null || echo "af-south-1")
-echo -e "${YELLOW}🌍 Using AWS region: ${AWS_REGION}${NC}"
+# Get AWS account info
+AWS_ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+AWS_REGION=$(aws configure get region || echo "af-south-1")
+echo -e "${BLUE}📍 AWS Account: ${AWS_ACCOUNT}, Region: ${AWS_REGION}${NC}"
 
-# Initialize or check Pulumi
-echo -e "${YELLOW}🔧 Initializing Pulumi...${NC}"
+# Terraform operations
+echo -e "${YELLOW}🔧 Initializing Terraform...${NC}"
 cd "$SCRIPT_DIR"
+terraform init
 
-# Install Python dependencies if needed
-if [ ! -d "venv" ]; then
-    echo -e "${YELLOW}📦 Creating Python virtual environment...${NC}"
-    python3 -m venv venv
-fi
+echo -e "${YELLOW}📝 Formatting Terraform files...${NC}"
+terraform fmt -recursive
 
-echo -e "${YELLOW}📦 Installing Python dependencies...${NC}"
-source venv/bin/activate
-pip install -r requirements.txt
+echo -e "${YELLOW}✅ Validating Terraform configuration...${NC}"
+terraform validate
 
-echo -e "${YELLOW}✅ Validating Pulumi configuration...${NC}"
-pulumi preview
+echo -e "${YELLOW}📊 Planning deployment...${NC}"
+terraform plan -out=tfplan
 
 echo -e "${YELLOW}💰 Estimated costs:${NC}"
-echo "EKS Cluster: ~\\$72/month (\\$0.10/hour)"
-echo "Node Group (2 x t4g.small): ~\\$29/month" 
-echo "EBS Storage (40GB): ~\\$8/month"
-echo "Total: ~\\$109/month"
+echo "EKS Cluster: ~\$72/month (\$0.10/hour)"
+echo "Node Group (2 x t4g.small): ~\$29/month" 
+echo "EBS Storage (40GB): ~\$8/month"
+echo "Total: ~\$109/month"
 echo ""
 
 read -p "$(echo -e ${YELLOW}Do you want to proceed with deployment? [y/N]: ${NC})" -n 1 -r
@@ -83,13 +81,13 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
 fi
 
 echo -e "${YELLOW}🚀 Deploying infrastructure...${NC}"
-pulumi up --yes
+terraform apply tfplan
 
 echo -e "${GREEN}✅ Infrastructure deployed successfully!${NC}"
 
 # Configure kubectl
 echo -e "${YELLOW}🔧 Configuring kubectl...${NC}"
-CLUSTER_NAME=$(pulumi stack output cluster_name)
+CLUSTER_NAME=$(terraform output -raw cluster_name)
 aws eks --region "$AWS_REGION" update-kubeconfig --name "$CLUSTER_NAME"
 
 echo -e "${GREEN}✅ kubectl configured!${NC}"
@@ -105,12 +103,7 @@ echo -e "${BLUE}📋 Next steps:${NC}"
 echo "1. Check nodes: kubectl get nodes"
 echo "2. Check system pods: kubectl get pods -n kube-system"
 echo "3. Test internet connectivity: kubectl logs -n test deployment/test-internet-app"
-echo "4. Verify metrics server: kubectl top nodes"
+echo "4. Check metrics: kubectl top nodes"
 echo ""
-echo -e "${BLUE}💡 Cost optimization tips:${NC}"
-echo "- Enable spot instances to save ~70% on node costs"
-echo "- Scale down to 1 node for development to save ~\\$14/month"
-echo "- Use scheduled shutdown during off-hours"
-echo ""
-echo -e "${BLUE}🗑️ To clean up resources:${NC}"
-echo "./cleanup.sh"
+echo -e "${BLUE}🔗 Useful outputs:${NC}"
+terraform output next_steps

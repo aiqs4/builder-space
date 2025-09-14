@@ -1,4 +1,4 @@
-name: Deploy EKS Infrastructure
+name: Deploy EKS Infrastructure (Pulumi)
 
 on:
   workflow_dispatch:
@@ -6,27 +6,19 @@ on:
       action:
         description: 'Action to perform'
         required: true
-        default: 'plan'
+        default: 'preview'
         type: choice
         options:
-        - plan
-        - apply
+        - preview
+        - up
         - destroy
-  # push:
-  #   branches: [ main ]
-  #   paths: [ 
-  #     '*.tf', 
-  #     'modules/**/*.tf',
-  #     'deploy.sh',
-  #     '.github/workflows/deploy.yml'
-  #   ]
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  terraform:
+  pulumi:
     runs-on: ubuntu-latest
     environment: production
     
@@ -40,53 +32,53 @@ jobs:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
         aws-region: ${{ secrets.AWS_REGION }}
 
-    - name: Setup Terraform
-      uses: hashicorp/setup-terraform@v3
+    - name: Setup Python
+      uses: actions/setup-python@v4
       with:
-        terraform_version: 1.13.2
+        python-version: '3.11'
 
-    - name: Cache Terraform providers
+    - name: Setup Pulumi
+      uses: pulumi/actions@v4
+      with:
+        command: install
+        version: latest
+
+    - name: Cache Python dependencies
       uses: actions/cache@v4
       with:
-        path: |
-          ~/.terraform.d/plugin-cache
-          .terraform/providers
-        key: ${{ runner.os }}-terraform-${{ hashFiles('**/.terraform.lock.hcl') }}
+        path: ~/.cache/pip
+        key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
         restore-keys: |
-          ${{ runner.os }}-terraform-
+          ${{ runner.os }}-pip-
 
-    - name: Terraform Init
-      run: terraform init
-
-    - name: Terraform Validate
-      run: terraform validate
-
-    - name: Terraform Format Check
-      run: terraform fmt -check -diff
-      continue-on-error: true
-
-    - name: Terraform Plan
+    - name: Install Python dependencies
       run: |
-        terraform plan -out=tfplan
-        terraform show -no-color tfplan > plan.txt
-      if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) || github.event_name == 'push' }}
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
 
-    - name: Upload Plan Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: terraform-plan
-        path: |
-          tfplan
-          plan.txt
-        retention-days: 5
-      if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) || github.event_name == 'push' }}
+    - name: Configure Pulumi
+      run: |
+        pulumi login --local
+        echo "${{ secrets.PULUMI_CONFIG_PASSPHRASE }}" | pulumi stack select dev --create
+      env:
+        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
 
-    - name: Terraform Apply
-      run: terraform apply -auto-approve tfplan
-      if: github.event.inputs.action == 'apply'
+    - name: Pulumi Preview
+      run: pulumi preview
+      env:
+        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      if: ${{ contains(fromJson('["preview","up"]'), github.event.inputs.action) }}
 
-    - name: Terraform Destroy
-      run: terraform destroy -auto-approve
+    - name: Pulumi Up
+      run: pulumi up --yes
+      env:
+        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      if: github.event.inputs.action == 'up'
+
+    - name: Pulumi Destroy
+      run: pulumi destroy --yes
+      env:
+        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
       if: github.event.inputs.action == 'destroy'
 
     - name: Update kubeconfig and verify cluster
@@ -95,22 +87,25 @@ jobs:
         kubectl get nodes
         kubectl get pods -A
         echo "Cluster verification completed successfully"
-      if: github.event.inputs.action == 'apply' && success()
+      if: github.event.inputs.action == 'up' && success()
 
-    - name: Cost Estimation Comment
+    - name: Cost Estimation Summary
       run: |
-        if [ -f "plan.txt" ]; then
-          echo "## 💰 Estimated Monthly Costs" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Based on current configuration:" >> $GITHUB_STEP_SUMMARY
-          echo "- EKS Cluster: $72.00/month" >> $GITHUB_STEP_SUMMARY
-          echo "- Node Group (2x t4g.small): $28.80/month" >> $GITHUB_STEP_SUMMARY
-          echo "- EBS Storage (40GB): $8.00/month" >> $GITHUB_STEP_SUMMARY
-          echo "- **Total Estimated: $108.80/month**" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "💡 **Cost Optimization Tips:**" >> $GITHUB_STEP_SUMMARY
-          echo "- Use spot instances: Save ~70% on nodes" >> $GITHUB_STEP_SUMMARY
-          echo "- Scale to 1 node for dev: Save ~$14/month" >> $GITHUB_STEP_SUMMARY
-          echo "- Use scheduled shutdown: Save ~65% during off-hours" >> $GITHUB_STEP_SUMMARY
-        fi
-      if: ${{ contains(fromJson('["plan","apply"]'), github.event.inputs.action) }}
+        echo "## 💰 Estimated Monthly Costs" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "Based on current configuration:" >> $GITHUB_STEP_SUMMARY
+        echo "- EKS Cluster: $72.00/month" >> $GITHUB_STEP_SUMMARY
+        echo "- Node Group (2x t4g.small): $28.80/month" >> $GITHUB_STEP_SUMMARY
+        echo "- EBS Storage (40GB): $8.00/month" >> $GITHUB_STEP_SUMMARY
+        echo "- **Total Estimated: $108.80/month**" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "💡 **Cost Optimization Tips:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Use spot instances: Save ~70% on nodes" >> $GITHUB_STEP_SUMMARY
+        echo "- Scale to 1 node for dev: Save ~$14/month" >> $GITHUB_STEP_SUMMARY
+        echo "- Use scheduled shutdown: Save ~65% during off-hours" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "🔧 **Migration from Terraform:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Legacy Terraform code archived in terraform-legacy/" >> $GITHUB_STEP_SUMMARY
+        echo "- All functionality preserved with improved Python modularity" >> $GITHUB_STEP_SUMMARY
+        echo "- Cost optimization features maintained" >> $GITHUB_STEP_SUMMARY
+      if: ${{ contains(fromJson('["preview","up"]'), github.event.inputs.action) }}
