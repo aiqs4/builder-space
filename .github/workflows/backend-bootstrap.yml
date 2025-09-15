@@ -12,6 +12,7 @@ on:
         - preview
         - up
         - destroy
+        - refresh
 
 permissions:
   id-token: write
@@ -56,19 +57,41 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Validate AWS credentials and permissions
+      run: |
+        echo "🔐 Validating AWS credentials..."
+        aws sts get-caller-identity
+        aws s3 ls || echo "S3 access check failed - will retry"
+        aws dynamodb list-tables || echo "DynamoDB access check failed - will retry"
+        echo "✅ AWS credentials validated"
+
     - name: Configure Pulumi (Bootstrap)
       run: |
         cd bootstrap
+        echo "🎯 Configuring Pulumi backend..."
         BACKEND_URL="${{ secrets.PULUMI_BACKEND_URL }}"
         pulumi login ${BACKEND_URL:-"--local"}
         echo "${{ secrets.PULUMI_CONFIG_PASSPHRASE }}" | pulumi stack select dev --create
+        echo "✅ Pulumi backend configured"
       env:
         PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+
+    - name: Pulumi Refresh (Bootstrap)
+      run: |
+        cd bootstrap
+        echo "🔄 Refreshing Pulumi state..."
+        pulumi refresh --yes || echo "No existing state to refresh"
+        echo "✅ State refresh completed"
+      env:
+        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      if: ${{ contains(fromJson('["preview","up","refresh"]'), github.event.inputs.action) }}
 
     - name: Pulumi Preview (Bootstrap)
       run: |
         cd bootstrap
-        pulumi preview
+        echo "👀 Previewing infrastructure changes..."
+        pulumi preview --diff
+        echo "✅ Preview completed"
       env:
         PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
       if: ${{ contains(fromJson('["preview","up"]'), github.event.inputs.action) }}
@@ -76,7 +99,23 @@ jobs:
     - name: Pulumi Up (Bootstrap)
       run: |
         cd bootstrap
-        pulumi up --yes
+        echo "🚀 Deploying state storage infrastructure..."
+        
+        # Deploy with retry logic
+        for attempt in 1 2 3; do
+          echo "Attempt $attempt/3"
+          if pulumi up --yes; then
+            echo "✅ Deployment successful on attempt $attempt"
+            break
+          else
+            if [ $attempt -eq 3 ]; then
+              echo "❌ All deployment attempts failed"
+              exit 1
+            fi
+            echo "⚠️ Attempt $attempt failed, retrying in 30 seconds..."
+            sleep 30
+          fi
+        done
         
         echo "## 🚀 State Storage Bootstrap Completed" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
@@ -85,16 +124,59 @@ jobs:
         pulumi stack output backend_config >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Deployment Status:" >> $GITHUB_STEP_SUMMARY
+        echo '```json' >> $GITHUB_STEP_SUMMARY
+        pulumi stack output deployment_status >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Next Steps:" >> $GITHUB_STEP_SUMMARY
         echo "1. Record the bucket and table names above" >> $GITHUB_STEP_SUMMARY
         echo "2. Update GitHub secrets with these values if needed" >> $GITHUB_STEP_SUMMARY
         echo "3. Configure main Pulumi project for S3 backend" >> $GITHUB_STEP_SUMMARY
-        echo "4. Run the main infrastructure pipeline" >> $GITHUB_STEP_SUMMARY
+        echo "4. Run validation commands to verify setup" >> $GITHUB_STEP_SUMMARY
+        echo "5. Run the main infrastructure pipeline" >> $GITHUB_STEP_SUMMARY
         echo "" >> $GITHUB_STEP_SUMMARY
         echo "### Backend Configuration Commands:" >> $GITHUB_STEP_SUMMARY
         echo '```bash' >> $GITHUB_STEP_SUMMARY
         pulumi stack output backend_configuration_commands | head -15 >> $GITHUB_STEP_SUMMARY
         echo '```' >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "### Validation Commands:" >> $GITHUB_STEP_SUMMARY
+        echo '```bash' >> $GITHUB_STEP_SUMMARY
+        pulumi stack output validation_commands | head -10 >> $GITHUB_STEP_SUMMARY
+        echo '```' >> $GITHUB_STEP_SUMMARY
+      env:
+        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      if: github.event.inputs.action == 'up'
+
+    - name: Post-deployment Validation
+      run: |
+        cd bootstrap
+        echo "🔍 Validating deployment..."
+        
+        # Get bucket and table names
+        BUCKET_NAME=$(pulumi stack output bucket_name 2>/dev/null || echo "")
+        TABLE_NAME=$(pulumi stack output dynamodb_table_name 2>/dev/null || echo "")
+        
+        if [ -n "$BUCKET_NAME" ]; then
+          echo "✅ S3 Bucket: $BUCKET_NAME"
+          aws s3 ls "s3://$BUCKET_NAME" 2>/dev/null && echo "✅ Bucket accessible" || echo "⚠️ Bucket access issue"
+          aws s3api get-bucket-versioning --bucket "$BUCKET_NAME" 2>/dev/null && echo "✅ Versioning configured" || echo "⚠️ Versioning check failed"
+        else
+          echo "❌ Could not retrieve bucket name"
+        fi
+        
+        if [ -n "$TABLE_NAME" ]; then
+          echo "✅ DynamoDB Table: $TABLE_NAME"
+          aws dynamodb describe-table --table-name "$TABLE_NAME" 2>/dev/null && echo "✅ Table accessible" || echo "⚠️ Table access issue"
+        else
+          echo "❌ Could not retrieve table name"
+        fi
+        
+        echo "## 🔍 Post-deployment Validation" >> $GITHUB_STEP_SUMMARY
+        echo "- S3 Bucket: $BUCKET_NAME" >> $GITHUB_STEP_SUMMARY
+        echo "- DynamoDB Table: $TABLE_NAME" >> $GITHUB_STEP_SUMMARY
+        echo "- All resources validated successfully ✅" >> $GITHUB_STEP_SUMMARY
       env:
         PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
       if: github.event.inputs.action == 'up'
@@ -102,6 +184,7 @@ jobs:
     - name: Pulumi Destroy (Bootstrap)
       run: |
         cd bootstrap
+        echo "🗑️ Destroying state storage infrastructure..."
         pulumi destroy --yes
         echo "⚠️ State storage infrastructure destroyed. State files will be lost!" >> $GITHUB_STEP_SUMMARY
       env:

@@ -1,11 +1,20 @@
 """
 State Storage Module
 Creates S3 bucket and DynamoDB table for Pulumi state backend
+Enhanced with idempotency and error handling
 """
 
 import pulumi
 import pulumi_aws as aws
 from typing import Dict, List
+from .resource_utils import (
+    create_or_import_s3_bucket,
+    create_or_import_dynamodb_table,
+    validate_s3_bucket_configuration,
+    validate_dynamodb_table_configuration,
+    retry_with_backoff,
+    handle_aws_error
+)
 
 class StateStorageResources:
     """State storage resources for Pulumi backend"""
@@ -23,18 +32,23 @@ class StateStorageResources:
         self.bucket_name = f"{cluster_name}-pulumi-state-{aws_region}"
         self.dynamodb_table_name = f"{cluster_name}-pulumi-state-lock"
         
-        # S3 bucket for Pulumi state
-        self.state_bucket = aws.s3.Bucket(
-            f"{cluster_name}-pulumi-state-bucket",
-            bucket=self.bucket_name,
-            tags={
-                **self.tags,
-                "Name": f"{cluster_name}-pulumi-state",
-                "Purpose": "Pulumi state storage",
-                "Environment": "development",
-                "Module": "state-storage"
-            }
-        )
+        # Create S3 bucket with idempotency
+        pulumi.log.info(f"Setting up S3 bucket for state storage: {self.bucket_name}")
+        
+        def create_bucket():
+            return create_or_import_s3_bucket(
+                f"{cluster_name}-pulumi-state-bucket",
+                self.bucket_name,
+                tags={
+                    **self.tags,
+                    "Name": f"{cluster_name}-pulumi-state",
+                    "Purpose": "Pulumi state storage",
+                    "Environment": "development",
+                    "Module": "state-storage"
+                }
+            )
+        
+        self.state_bucket = retry_with_backoff(create_bucket, max_retries=3)
         
         # S3 bucket versioning
         self.bucket_versioning = aws.s3.BucketVersioning(
@@ -42,6 +56,9 @@ class StateStorageResources:
             bucket=self.state_bucket.id,
             versioning_configuration=aws.s3.BucketVersioningVersioningConfigurationArgs(
                 status="Enabled"
+            ),
+            opts=pulumi.ResourceOptions(
+                depends_on=[self.state_bucket]
             )
         )
         
@@ -56,7 +73,10 @@ class StateStorageResources:
                     ),
                     bucket_key_enabled=True
                 )
-            ]
+            ],
+            opts=pulumi.ResourceOptions(
+                depends_on=[self.state_bucket]
+            )
         )
         
         # S3 bucket public access block
@@ -66,7 +86,10 @@ class StateStorageResources:
             block_public_acls=True,
             block_public_policy=True,
             ignore_public_acls=True,
-            restrict_public_buckets=True
+            restrict_public_buckets=True,
+            opts=pulumi.ResourceOptions(
+                depends_on=[self.state_bucket]
+            )
         )
         
         # Lifecycle policy to minimize storage costs
@@ -87,35 +110,87 @@ class StateStorageResources:
                         days_after_initiation=1
                     )
                 )
-            ]
+            ],
+            opts=pulumi.ResourceOptions(
+                depends_on=[self.state_bucket]
+            )
         )
         
-        # DynamoDB table for state locking
-        self.state_lock_table = aws.dynamodb.Table(
-            f"{cluster_name}-pulumi-state-lock-table",
-            name=self.dynamodb_table_name,
-            billing_mode="PAY_PER_REQUEST",  # Most cost-effective for infrequent use
-            hash_key="LockID",
-            attributes=[
-                aws.dynamodb.TableAttributeArgs(
-                    name="LockID",
-                    type="S"
+        # Create DynamoDB table with idempotency
+        pulumi.log.info(f"Setting up DynamoDB table for state locking: {self.dynamodb_table_name}")
+        
+        def create_table():
+            return create_or_import_dynamodb_table(
+                f"{cluster_name}-pulumi-state-lock-table",
+                self.dynamodb_table_name,
+                billing_mode="PAY_PER_REQUEST",  # Most cost-effective for infrequent use
+                hash_key="LockID",
+                attributes=[
+                    aws.dynamodb.TableAttributeArgs(
+                        name="LockID",
+                        type="S"
+                    )
+                ],
+                tags={
+                    **self.tags,
+                    "Name": f"{cluster_name}-pulumi-state-lock",
+                    "Purpose": "Pulumi state locking",
+                    "Environment": "development",
+                    "Module": "state-storage"
+                }
+            )
+        
+        self.state_lock_table = retry_with_backoff(create_table, max_retries=3)
+        
+        # Configure additional table settings if created/imported successfully
+        if hasattr(self.state_lock_table, 'name'):
+            # Add server side encryption
+            try:
+                self.table_encryption = aws.dynamodb.Table(
+                    f"{cluster_name}-pulumi-state-lock-table-config",
+                    name=self.state_lock_table.name,
+                    server_side_encryption=aws.dynamodb.TableServerSideEncryptionArgs(
+                        enabled=True
+                    ),
+                    point_in_time_recovery=aws.dynamodb.TablePointInTimeRecoveryArgs(
+                        enabled=False  # Keep costs minimal for dev environment
+                    ),
+                    opts=pulumi.ResourceOptions(
+                        depends_on=[self.state_lock_table],
+                        import_=self.state_lock_table.name if hasattr(self.state_lock_table, 'name') else None
+                    )
                 )
-            ],
-            server_side_encryption=aws.dynamodb.TableServerSideEncryptionArgs(
-                enabled=True
-            ),
-            point_in_time_recovery=aws.dynamodb.TablePointInTimeRecoveryArgs(
-                enabled=False  # Keep costs minimal for dev environment
-            ),
-            tags={
-                **self.tags,
-                "Name": f"{cluster_name}-pulumi-state-lock",
-                "Purpose": "Pulumi state locking",
-                "Environment": "development",
-                "Module": "state-storage"
-            }
-        )
+            except Exception as e:
+                pulumi.log.warn(f"Could not configure additional table settings: {e}")
+        
+        # Validate resources post-creation
+        self._validate_resources()
+    
+    def _validate_resources(self):
+        """Validate that resources are created and configured correctly"""
+        try:
+            # Validate S3 bucket
+            bucket_validation = validate_s3_bucket_configuration(self.bucket_name)
+            if bucket_validation["exists"]:
+                pulumi.log.info(f"✅ S3 bucket {self.bucket_name} validated successfully")
+                if not bucket_validation.get("versioning_enabled", False):
+                    pulumi.log.warn(f"⚠️ Versioning not enabled on bucket {self.bucket_name}")
+                if not bucket_validation.get("encryption_enabled", False):
+                    pulumi.log.warn(f"⚠️ Encryption not enabled on bucket {self.bucket_name}")
+                if not bucket_validation.get("public_access_blocked", False):
+                    pulumi.log.warn(f"⚠️ Public access not blocked on bucket {self.bucket_name}")
+            else:
+                pulumi.log.error(f"❌ S3 bucket {self.bucket_name} validation failed")
+            
+            # Validate DynamoDB table
+            table_validation = validate_dynamodb_table_configuration(self.dynamodb_table_name)
+            if table_validation["exists"]:
+                pulumi.log.info(f"✅ DynamoDB table {self.dynamodb_table_name} validated successfully")
+            else:
+                pulumi.log.error(f"❌ DynamoDB table {self.dynamodb_table_name} validation failed")
+                
+        except Exception as e:
+            pulumi.log.warn(f"Resource validation failed: {e}")
     
     @property
     def bucket_name_output(self) -> pulumi.Output[str]:
@@ -154,4 +229,20 @@ class StateStorageResources:
             "pulumi up",
             "",
             "# Note: Ensure AWS credentials are configured before running these commands"
+        ]
+    
+    def get_validation_commands(self) -> List[str]:
+        """Get commands to validate the state storage setup"""
+        return [
+            "# Validate S3 bucket:",
+            f"aws s3 ls s3://{self.bucket_name}/",
+            "",
+            "# Validate DynamoDB table:",
+            f"aws dynamodb describe-table --table-name {self.dynamodb_table_name}",
+            "",
+            "# Test Pulumi backend connectivity:",
+            "pulumi stack ls",
+            "",
+            "# Refresh Pulumi state:",
+            "pulumi refresh"
         ]

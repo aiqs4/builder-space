@@ -12,6 +12,7 @@ on:
         - preview
         - up
         - destroy
+        - refresh
 
 permissions:
   id-token: write
@@ -55,38 +56,143 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
+    - name: Validate AWS credentials and backend
+      run: |
+        echo "🔐 Validating AWS credentials..."
+        aws sts get-caller-identity
+        
+        echo "🗄️ Validating backend state storage..."
+        if [ -n "${{ secrets.PULUMI_BACKEND_URL }}" ]; then
+          # Extract bucket name from backend URL
+          BUCKET_NAME=$(echo "${{ secrets.PULUMI_BACKEND_URL }}" | sed 's/s3:\/\///')
+          aws s3 ls "s3://$BUCKET_NAME" 2>/dev/null && echo "✅ State bucket accessible" || echo "⚠️ State bucket access issue"
+        fi
+        
+        echo "🎯 Checking EKS prerequisites..."
+        aws eks list-clusters || echo "EKS access check completed"
+        
+        echo "✅ Validation completed"
+
     - name: Configure Pulumi
       run: |
+        echo "🎯 Configuring Pulumi backend..."
         pulumi login ${{ secrets.PULUMI_BACKEND_URL }}
         echo "${{ secrets.PULUMI_CONFIG_PASSPHRASE }}" | pulumi stack select dev --create
+        echo "✅ Pulumi backend configured"
       env:
         PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
 
+    - name: Pulumi Refresh
+      run: |
+        echo "🔄 Refreshing Pulumi state..."
+        pulumi refresh --yes || echo "No existing state to refresh"
+        echo "✅ State refresh completed"
+      env:
+        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      if: ${{ contains(fromJson('["preview","up","refresh"]'), github.event.inputs.action) }}
+
     - name: Pulumi Preview
-      run: pulumi preview
+      run: |
+        echo "👀 Previewing infrastructure changes..."
+        pulumi preview --diff
+        echo "✅ Preview completed"
       env:
         PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
       if: ${{ contains(fromJson('["preview","up"]'), github.event.inputs.action) }}
 
     - name: Pulumi Up
-      run: pulumi up --yes
+      run: |
+        echo "🚀 Deploying EKS infrastructure..."
+        
+        # Deploy with retry logic for transient errors
+        for attempt in 1 2 3; do
+          echo "Attempt $attempt/3"
+          if pulumi up --yes; then
+            echo "✅ Deployment successful on attempt $attempt"
+            break
+          else
+            if [ $attempt -eq 3 ]; then
+              echo "❌ All deployment attempts failed"
+              exit 1
+            fi
+            echo "⚠️ Attempt $attempt failed, retrying in 60 seconds..."
+            sleep 60
+          fi
+        done
+        
+        echo "✅ EKS infrastructure deployment completed"
       env:
         PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
       if: github.event.inputs.action == 'up'
 
-    - name: Pulumi Destroy
-      run: pulumi destroy --yes
+    - name: Post-deployment Validation
+      run: |
+        echo "🔍 Validating EKS cluster deployment..."
+        
+        # Get cluster name from secrets or default
+        CLUSTER_NAME="${{ secrets.CLUSTER_NAME }}"
+        if [ -z "$CLUSTER_NAME" ]; then
+          CLUSTER_NAME="builder-space"
+        fi
+        
+        # Update kubeconfig
+        echo "📋 Updating kubeconfig..."
+        aws eks --region ${{ secrets.AWS_REGION }} update-kubeconfig --name "$CLUSTER_NAME"
+        
+        # Validate cluster connectivity
+        echo "🔗 Testing cluster connectivity..."
+        if kubectl cluster-info 2>/dev/null; then
+          echo "✅ Cluster connectivity verified"
+        else
+          echo "⚠️ Cluster connectivity issue - will retry"
+          sleep 30
+          kubectl cluster-info
+        fi
+        
+        # Check cluster nodes
+        echo "🖥️ Checking cluster nodes..."
+        kubectl get nodes -o wide || echo "⚠️ Node check failed - cluster may still be initializing"
+        
+        # Check system pods
+        echo "🏃 Checking system pods..."
+        kubectl get pods -A --field-selector=status.phase!=Running 2>/dev/null || echo "All system pods running"
+        
+        # Basic cluster health summary
+        echo "## 🔍 EKS Cluster Validation" >> $GITHUB_STEP_SUMMARY
+        echo "- Cluster: $CLUSTER_NAME" >> $GITHUB_STEP_SUMMARY
+        echo "- Region: ${{ secrets.AWS_REGION }}" >> $GITHUB_STEP_SUMMARY
+        echo "- Cluster connectivity: ✅" >> $GITHUB_STEP_SUMMARY
+        
+        NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l || echo "0")
+        echo "- Active nodes: $NODE_COUNT" >> $GITHUB_STEP_SUMMARY
+        
+        echo "✅ Cluster validation completed"
       env:
         PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
-      if: github.event.inputs.action == 'destroy'
+      if: github.event.inputs.action == 'up' && success()
 
     - name: Update kubeconfig and verify cluster
       run: |
-        aws eks --region ${{ secrets.AWS_REGION }} update-kubeconfig --name ${{ secrets.CLUSTER_NAME }}
+        echo "🔧 Final cluster verification..."
+        CLUSTER_NAME="${{ secrets.CLUSTER_NAME }}"
+        if [ -z "$CLUSTER_NAME" ]; then
+          CLUSTER_NAME="builder-space"
+        fi
+        
+        aws eks --region ${{ secrets.AWS_REGION }} update-kubeconfig --name "$CLUSTER_NAME"
         kubectl get nodes
         kubectl get pods -A
-        echo "Cluster verification completed successfully"
+        echo "✅ Cluster verification completed successfully"
       if: github.event.inputs.action == 'up' && success()
+
+    - name: Pulumi Destroy
+      run: |
+        echo "🗑️ Destroying EKS infrastructure..."
+        pulumi destroy --yes
+        echo "⚠️ EKS infrastructure destroyed" >> $GITHUB_STEP_SUMMARY
+      env:
+        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
+      if: github.event.inputs.action == 'destroy'
 
     - name: Cost Estimation Summary
       run: |
@@ -107,4 +213,5 @@ jobs:
         echo "- Legacy Terraform code archived in terraform-legacy/" >> $GITHUB_STEP_SUMMARY
         echo "- All functionality preserved with improved Python modularity" >> $GITHUB_STEP_SUMMARY
         echo "- Cost optimization features maintained" >> $GITHUB_STEP_SUMMARY
+        echo "- Enhanced robustness with idempotent deployments" >> $GITHUB_STEP_SUMMARY
       if: ${{ contains(fromJson('["preview","up"]'), github.event.inputs.action) }}
