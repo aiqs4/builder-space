@@ -59,7 +59,8 @@ jobs:
     - name: Configure Pulumi (Bootstrap)
       run: |
         cd bootstrap
-        pulumi login --local
+        BACKEND_URL="${{ secrets.PULUMI_BACKEND_URL }}"
+        pulumi login ${BACKEND_URL:-"--local"}
         echo "${{ secrets.PULUMI_CONFIG_PASSPHRASE }}" | pulumi stack select dev --create
       env:
         PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}

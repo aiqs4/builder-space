@@ -57,7 +57,7 @@ jobs:
 
     - name: Configure Pulumi
       run: |
-        pulumi login --local
+        pulumi login ${{ secrets.PULUMI_BACKEND_URL }}
         echo "${{ secrets.PULUMI_CONFIG_PASSPHRASE }}" | pulumi stack select dev --create
       env:
         PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}

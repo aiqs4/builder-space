@@ -37,21 +37,21 @@ class StateStorageResources:
         )
         
         # S3 bucket versioning
-        self.bucket_versioning = aws.s3.BucketVersioningV2(
+        self.bucket_versioning = aws.s3.BucketVersioning(
             f"{cluster_name}-state-bucket-versioning",
             bucket=self.state_bucket.id,
-            versioning_configuration=aws.s3.BucketVersioningV2VersioningConfigurationArgs(
+            versioning_configuration=aws.s3.BucketVersioningVersioningConfigurationArgs(
                 status="Enabled"
             )
         )
         
         # S3 bucket encryption
-        self.bucket_encryption = aws.s3.BucketServerSideEncryptionConfigurationV2(
+        self.bucket_encryption = aws.s3.BucketServerSideEncryptionConfiguration(
             f"{cluster_name}-state-bucket-encryption",
             bucket=self.state_bucket.id,
             rules=[
-                aws.s3.BucketServerSideEncryptionConfigurationV2RuleArgs(
-                    apply_server_side_encryption_by_default=aws.s3.BucketServerSideEncryptionConfigurationV2RuleApplyServerSideEncryptionByDefaultArgs(
+                aws.s3.BucketServerSideEncryptionConfigurationRuleArgs(
+                    apply_server_side_encryption_by_default=aws.s3.BucketServerSideEncryptionConfigurationRuleApplyServerSideEncryptionByDefaultArgs(
                         sse_algorithm="AES256"
                     ),
                     bucket_key_enabled=True
@@ -70,20 +70,20 @@ class StateStorageResources:
         )
         
         # Lifecycle policy to minimize storage costs
-        self.bucket_lifecycle = aws.s3.BucketLifecycleConfigurationV2(
+        self.bucket_lifecycle = aws.s3.BucketLifecycleConfiguration(
             f"{cluster_name}-state-bucket-lifecycle",
             bucket=self.state_bucket.id,
             rules=[
-                aws.s3.BucketLifecycleConfigurationV2RuleArgs(
+                aws.s3.BucketLifecycleConfigurationRuleArgs(
                     id="state_lifecycle",
                     status="Enabled",
-                    filter=aws.s3.BucketLifecycleConfigurationV2RuleFilterArgs(
+                    filter=aws.s3.BucketLifecycleConfigurationRuleFilterArgs(
                         prefix=""
                     ),
-                    noncurrent_version_expiration=aws.s3.BucketLifecycleConfigurationV2RuleNoncurrentVersionExpirationArgs(
+                    noncurrent_version_expiration=aws.s3.BucketLifecycleConfigurationRuleNoncurrentVersionExpirationArgs(
                         noncurrent_days=30
                     ),
-                    abort_incomplete_multipart_upload=aws.s3.BucketLifecycleConfigurationV2RuleAbortIncompleteMultipartUploadArgs(
+                    abort_incomplete_multipart_upload=aws.s3.BucketLifecycleConfigurationRuleAbortIncompleteMultipartUploadArgs(
                         days_after_initiation=1
                     )
                 )
