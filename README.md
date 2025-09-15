@@ -1,28 +1,50 @@
-# Builder Space - Modular EKS Development Environment (Pulumi Python)
+# Builder Space - Pure Declarative EKS Infrastructure (Pulumi Python)
 
-**🚀 MIGRATED TO PULUMI: Now powered by Python for improved modularity and developer experience!**
+**🎯 PURE DECLARATIVE: Infrastructure as Code with minimal abstractions, following Pulumi best practices!**
 
-A cost-optimized, modular Pulumi Python setup for AWS EKS development environments with separated backend management and comprehensive cost-saving features.
+A purely declarative, module-based Pulumi Python infrastructure for AWS EKS that eliminates complex classes and functions in favor of simple, clear resource declarations.
 
-## 🎯 Overview
+## 🎯 Philosophy
 
-This infrastructure creates:
-- **Modular Python Architecture**: Separated modules for vpc, iam, eks, addons using Pulumi Python
-- **State Storage Bootstrap**: Separate S3 + DynamoDB state management  
-- **Cost Optimization**: Spot instances, scaling options, and resource optimization
-- **Safe Migration**: Import existing resources without recreation
-- **EKS Cluster**: Managed Kubernetes control plane
-- **Node Group**: ARM-based instances with cost optimization options
-- **VPC**: Public subnets configuration optimized for development
-- **Add-ons**: metrics-server, test deployments, optional load balancer controller
+This infrastructure follows the principle that **Infrastructure as Code should be just declarations**:
 
-## 🔄 Migration Status
+- ✅ **No Large Classes**: Eliminated complex wrapper classes
+- ✅ **No Function Abstractions**: Direct Pulumi resource declarations 
+- ✅ **Minimal Logic**: Only essential conditionals for configuration
+- ✅ **Import-Based**: Modules execute declarations on import
+- ✅ **Pipeline Compatible**: Works seamlessly with recovery and import mechanisms
 
-✅ **Migration Complete**: Terraform code has been migrated to Pulumi Python
-- **Legacy Code**: Original Terraform code archived in `terraform-legacy/`
-- **New Implementation**: Python-based Pulumi modules in `modules/`
-- **Preserved Functionality**: All features and cost optimizations maintained
-- **Enhanced Developer Experience**: Python modularity and type hints
+## 🏗️ Pure Declarative Architecture
+
+Each module contains direct Pulumi resource declarations:
+
+```python
+# modules/vpc/__init__.py - Pure declarations
+vpc = aws.ec2.Vpc(f"{cluster_name}-vpc", cidr_block=config.vpc_cidr, ...)
+igw = aws.ec2.InternetGateway(f"{cluster_name}-igw", vpc_id=vpc.id, ...)
+
+# Export resources directly
+vpc_id = vpc.id
+public_subnet_ids = [subnet.id for subnet in public_subnets]
+```
+
+```python
+# __main__.py - Import modules to execute declarations
+import modules.vpc as vpc_module
+import modules.eks as eks_module
+
+# Use exported resources directly
+pulumi.export("vpc_id", vpc_module.vpc_id)
+pulumi.export("cluster_endpoint", eks_module.cluster_endpoint)
+```
+
+## 🔧 Infrastructure Components
+
+- **VPC Module** (`modules/vpc/`): Network infrastructure declarations
+- **IAM Module** (`modules/iam/`): Role and policy resource declarations  
+- **EKS Module** (`modules/eks/`): Cluster and node group declarations
+- **Addons Module** (`modules/addons/`): Kubernetes resource declarations
+- **State Storage Module** (`modules/state_storage/`): Backend storage declarations
 
 ## 🚀 Quick Start
 
@@ -32,15 +54,25 @@ This infrastructure creates:
 - Pulumi CLI installed
 - kubectl installed
 
-### Important: Robust Deployment Features
+### Pipeline-Ready Declarative Infrastructure
 
-This infrastructure now includes **enhanced robustness features** for reliable deployments:
+This infrastructure is designed for **reliable pipeline operations** with pure declarative principles:
 
-🔄 **Idempotent Operations**: All deployments handle existing resources gracefully  
-🔁 **Automatic Retries**: Transient AWS errors are automatically retried  
-✅ **Post-deployment Validation**: Resources are verified after creation  
-🔍 **State Refresh**: Pulumi state is refreshed before updates  
-🛡️ **Error Handling**: Specific AWS errors (like `BucketAlreadyOwnedByYou`) are handled gracefully
+🎯 **Static Declarations**: Resources are declared statically, making them predictable for pipelines  
+🔄 **Idempotent by Design**: Declarative resources handle existing infrastructure gracefully  
+🔁 **Recovery Compatible**: Pipeline failures can be resolved with import and retry  
+📦 **Module-Based**: Each module executes independently, enabling partial deployments  
+🛡️ **Error Resilient**: Minimal logic reduces potential failure points  
+✅ **State Management**: Direct resource exports work seamlessly with Pulumi state
+
+### Robust Pipeline Operations
+
+The declarative approach ensures pipelines work reliably regardless of existing resources:
+
+- **Import on Conflict**: Existing resources are automatically imported rather than causing failures
+- **State Recovery**: Simple `pulumi refresh` resolves most state inconsistencies  
+- **Retry-Friendly**: Stateless declarations can be retried without side effects
+- **Minimal Dependencies**: Direct imports reduce complex dependency chains
 
 ### 1. Bootstrap State Storage (First Time Only)
 The state storage infrastructure (S3 bucket + DynamoDB table) must be created before deploying the main infrastructure.
@@ -413,6 +445,72 @@ Original Terraform code is preserved in `terraform-legacy/` for reference and ro
 - **Free Tier Friendly**: Designed to work within AWS free tier limitations
 - **Transparent Costs**: Clear cost breakdown and optimization recommendations
 - **Gradual Adoption**: Enable optimizations as you become comfortable with the setup
+
+## 🛠️ Development and Module Structure
+
+### Function-Based Architecture
+This project now uses a **clean function-based approach** following Pulumi best practices:
+
+```python
+# Example: Simple, declarative resource creation
+from modules.vpc import create_vpc_resources
+from modules.iam import create_iam_resources
+from modules.eks import create_eks_resources
+
+# Create VPC infrastructure
+vpc = create_vpc_resources(
+    cluster_name="my-cluster",
+    vpc_cidr="10.0.0.0/16",
+    public_subnet_cidrs=["10.0.1.0/24", "10.0.2.0/24"],
+    tags={"Environment": "dev"}
+)
+
+# Create IAM resources
+iam = create_iam_resources(
+    cluster_name="my-cluster",
+    tags={"Environment": "dev"}
+)
+
+# Create EKS cluster
+eks = create_eks_resources(
+    cluster_name="my-cluster",
+    cluster_version="1.32",
+    cluster_role_arn=iam["cluster_role_arn"],
+    node_group_role_arn=iam["node_group_role_arn"],
+    subnet_ids=vpc["public_subnet_ids"],
+    cluster_security_group_id=vpc["cluster_security_group_id"],
+    node_security_group_id=vpc["node_group_security_group_id"],
+    node_instance_types=["t3.medium"],
+    node_desired_size=2,
+    node_max_size=5,
+    node_min_size=1,
+    node_disk_size=20,
+    tags={"Environment": "dev"}
+)
+```
+
+### Module Structure
+- **`modules/vpc/`**: VPC, subnets, security groups creation
+- **`modules/iam/`**: IAM roles and policies for EKS
+- **`modules/eks/`**: EKS cluster and node group management
+- **`modules/addons/`**: Kubernetes add-ons and applications
+- **`modules/state_storage/`**: S3 and DynamoDB backend setup
+
+### Key Benefits
+- **Simple Function Calls**: Clear input/output contracts
+- **No Large Classes**: Eliminated heavy stateful wrappers
+- **Better Testability**: Easy to unit test and mock
+- **Explicit Dependencies**: Clear resource relationships
+- **Pulumi Idiomatic**: Follows Pulumi community patterns
+
+### Running Tests
+```bash
+# Test module structure and imports
+python -m unittest tests.test_modules -v
+
+# Verify syntax of all modules
+python -m py_compile modules/*/__init__.py
+```
 
 ## 🔍 Monitoring & Troubleshooting
 
