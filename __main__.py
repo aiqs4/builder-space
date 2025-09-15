@@ -6,11 +6,11 @@ A cost-optimized, modular EKS deployment with comprehensive features
 import pulumi
 import pulumi_aws as aws
 from config import get_config
-from modules.vpc import create_vpc_resources
-from modules.iam import create_iam_resources
-from modules.eks import create_eks_resources
-from modules.addons import create_addons_resources
-from modules.state_storage import create_state_storage_resources
+from modules.vpc import VPCResources
+from modules.iam import IAMResources
+from modules.eks import EKSResources
+from modules.addons import AddonsResources
+from modules.state_storage import StateStorageResources
 
 def main():
     """Main deployment function"""
@@ -23,7 +23,7 @@ def main():
     region = aws.get_region()
     
     # Create VPC resources
-    vpc = create_vpc_resources(
+    vpc = VPCResources(
         cluster_name=config.cluster_name,
         vpc_cidr=config.vpc_cidr,
         public_subnet_cidrs=config.public_subnet_cidrs,
@@ -34,7 +34,7 @@ def main():
     )
     
     # Create IAM resources
-    iam = create_iam_resources(
+    iam = IAMResources(
         cluster_name=config.cluster_name,
         use_existing_cluster_role=config.use_existing_cluster_role,
         existing_cluster_role_name=config.existing_cluster_role_name,
@@ -44,14 +44,14 @@ def main():
     )
     
     # Create EKS resources
-    eks = create_eks_resources(
+    eks = EKSResources(
         cluster_name=config.cluster_name,
         cluster_version=config.cluster_version,
-        cluster_role_arn=iam["cluster_role_arn"],
-        node_group_role_arn=iam["node_group_role_arn"],
-        subnet_ids=vpc["public_subnet_ids"],
-        cluster_security_group_id=vpc["cluster_security_group_id"],
-        node_security_group_id=vpc["node_group_security_group_id"],
+        cluster_role_arn=iam.cluster_role_arn,
+        node_group_role_arn=iam.node_group_role_arn,
+        subnet_ids=vpc.public_subnet_ids,
+        cluster_security_group_id=vpc.cluster_security_group_id,
+        node_security_group_id=vpc.node_group_security_group_id,
         node_instance_types=config.optimized_instance_types,
         node_desired_size=config.node_desired_size,
         node_max_size=config.node_max_size,
@@ -69,10 +69,10 @@ def main():
     )
     
     # Create addons resources
-    addons = create_addons_resources(
+    addons = AddonsResources(
         cluster_name=config.cluster_name,
-        cluster_endpoint=eks["cluster_endpoint"],
-        cluster_ca_data=eks["cluster_certificate_authority_data"],
+        cluster_endpoint=eks.cluster_endpoint,
+        cluster_ca_data=eks.cluster_certificate_authority_data,
         enable_metrics_server=True,
         enable_aws_load_balancer_controller=False,  # Requires additional IAM setup
         enable_test_deployment=True,
@@ -82,45 +82,45 @@ def main():
     # Export outputs for compatibility with Terraform
     
     # Individual resource outputs
-    pulumi.export("cluster_id", eks["cluster_id"])
-    pulumi.export("cluster_arn", eks["cluster_arn"])
+    pulumi.export("cluster_id", eks.cluster_id)
+    pulumi.export("cluster_arn", eks.cluster_arn)
     pulumi.export("cluster_name", pulumi.Output.from_input(config.cluster_name))
-    pulumi.export("cluster_endpoint", eks["cluster_endpoint"])
-    pulumi.export("cluster_version", eks["cluster_version"])
-    pulumi.export("cluster_certificate_authority_data", eks["cluster_certificate_authority_data"])
+    pulumi.export("cluster_endpoint", eks.cluster_endpoint)
+    pulumi.export("cluster_version", eks.cluster_version_output)
+    pulumi.export("cluster_certificate_authority_data", eks.cluster_certificate_authority_data)
     
     # Grouped outputs for better organization
     pulumi.export("cluster_info", {
         "cluster_name": config.cluster_name,
-        "cluster_endpoint": eks["cluster_endpoint"],
-        "cluster_arn": eks["cluster_arn"],
-        "cluster_version": eks["cluster_version"],
+        "cluster_endpoint": eks.cluster_endpoint,
+        "cluster_arn": eks.cluster_arn,
+        "cluster_version": eks.cluster_version_output,
         "region": region.id,
         "account_id": current.account_id
     })
     
     pulumi.export("vpc_info", {
-        "vpc_id": vpc["vpc_id"],
-        "vpc_cidr_block": vpc["vpc_cidr_block"],
-        "public_subnet_ids": vpc["public_subnet_ids"],
-        "availability_zones": vpc["availability_zones"]
+        "vpc_id": vpc.vpc_id,
+        "vpc_cidr_block": vpc.vpc_cidr_block,
+        "public_subnet_ids": vpc.public_subnet_ids,
+        "availability_zones": vpc.availability_zones
     })
     
     pulumi.export("iam_info", {
-        "cluster_role_arn": iam["cluster_role_arn"],
-        "cluster_role_name": iam["cluster_role_name"],
-        "node_group_role_arn": iam["node_group_role_arn"],
-        "node_group_role_name": iam["node_group_role_name"]
+        "cluster_role_arn": iam.cluster_role_arn,
+        "cluster_role_name": iam.cluster_role_name,
+        "node_group_role_arn": iam.node_group_role_arn,
+        "node_group_role_name": iam.node_group_role_name
     })
     
     # Compatibility outputs for existing scripts
-    pulumi.export("vpc_id", vpc["vpc_id"])
-    pulumi.export("vpc_cidr_block", vpc["vpc_cidr_block"])
-    pulumi.export("public_subnet_ids", vpc["public_subnet_ids"])
-    pulumi.export("cluster_security_group_id", vpc["cluster_security_group_id"])
-    pulumi.export("node_security_group_id", vpc["node_group_security_group_id"])
-    pulumi.export("cluster_iam_role_arn", iam["cluster_role_arn"])
-    pulumi.export("node_group_iam_role_arn", iam["node_group_role_arn"])
+    pulumi.export("vpc_id", vpc.vpc_id)
+    pulumi.export("vpc_cidr_block", vpc.vpc_cidr_block)
+    pulumi.export("public_subnet_ids", vpc.public_subnet_ids)
+    pulumi.export("cluster_security_group_id", vpc.cluster_security_group_id)
+    pulumi.export("node_security_group_id", vpc.node_group_security_group_id)
+    pulumi.export("cluster_iam_role_arn", iam.cluster_role_arn)
+    pulumi.export("node_group_iam_role_arn", iam.node_group_role_arn)
     pulumi.export("region", config.aws_region)
     
     # kubectl configuration command
@@ -183,9 +183,9 @@ def main():
             "scheduled_scaling": "✅ Enabled" if config.enable_scheduled_scaling else "❌ Disabled"
         },
         "addons_status": {
-            "metrics_server": addons["metrics_server_status"],
-            "aws_load_balancer_controller": addons["aws_load_balancer_controller_status"],
-            "test_deployment": "✅ Deployed" if addons["test_deployment_name"] else "❌ Not deployed"
+            "metrics_server": addons.metrics_server_status,
+            "aws_load_balancer_controller": addons.aws_load_balancer_controller_status,
+            "test_deployment": "✅ Deployed" if addons.test_deployment_name else "❌ Not deployed"
         }
     })
 
