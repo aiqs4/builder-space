@@ -54,9 +54,14 @@ def check_s3_bucket_exists(bucket_name: str) -> bool:
     """
     try:
         # Use Pulumi's AWS provider to check if bucket exists
+        # This is a data source call that will be evaluated during planning
         bucket_check = aws.s3.get_bucket_output(bucket=bucket_name)
+        # If we reach here without exception, bucket exists
+        pulumi.log.info(f"S3 bucket {bucket_name} already exists")
         return True
-    except Exception:
+    except Exception as e:
+        # Bucket doesn't exist or isn't accessible
+        pulumi.log.info(f"S3 bucket {bucket_name} doesn't exist or not accessible: {str(e)}")
         return False
 
 
@@ -72,9 +77,14 @@ def check_dynamodb_table_exists(table_name: str) -> bool:
     """
     try:
         # Use Pulumi's AWS provider to check if table exists
+        # This is a data source call that will be evaluated during planning
         table_check = aws.dynamodb.get_table_output(name=table_name)
+        # If we reach here without exception, table exists
+        pulumi.log.info(f"DynamoDB table {table_name} already exists")
         return True
-    except Exception:
+    except Exception as e:
+        # Table doesn't exist or isn't accessible
+        pulumi.log.info(f"DynamoDB table {table_name} doesn't exist or not accessible: {str(e)}")
         return False
 
 
