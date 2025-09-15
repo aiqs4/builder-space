@@ -32,14 +32,27 @@ This infrastructure creates:
 - Pulumi CLI installed
 - kubectl installed
 
+### Important: Robust Deployment Features
+
+This infrastructure now includes **enhanced robustness features** for reliable deployments:
+
+🔄 **Idempotent Operations**: All deployments handle existing resources gracefully  
+🔁 **Automatic Retries**: Transient AWS errors are automatically retried  
+✅ **Post-deployment Validation**: Resources are verified after creation  
+🔍 **State Refresh**: Pulumi state is refreshed before updates  
+🛡️ **Error Handling**: Specific AWS errors (like `BucketAlreadyOwnedByYou`) are handled gracefully
+
 ### 1. Bootstrap State Storage (First Time Only)
 The state storage infrastructure (S3 bucket + DynamoDB table) must be created before deploying the main infrastructure.
 
 **Via GitHub Actions (Recommended):**
 1. Go to Actions → "Bootstrap State Storage (Pulumi)" → Run workflow
 2. Choose "up" to create the state storage
-3. Record the bucket and table names from the output
-4. Add them to repository secrets: `BACKEND_BUCKET` and `BACKEND_DYNAMODB_TABLE`
+3. The workflow now includes automatic retry logic and validation
+4. Record the bucket and table names from the output
+5. Add them to repository secrets: `BACKEND_BUCKET` and `BACKEND_DYNAMODB_TABLE`
+
+💡 **Note**: If resources already exist, the workflow will import them automatically instead of failing.
 
 **Locally:**
 ```bash
@@ -47,6 +60,8 @@ cd bootstrap
 pip install -r requirements.txt
 export PULUMI_CONFIG_PASSPHRASE="your-passphrase"
 pulumi stack select dev --create
+
+# The bootstrap now includes automatic refresh and validation
 pulumi up
 # Record the output values
 ```
@@ -55,6 +70,11 @@ pulumi up
 **Via GitHub Actions:**
 1. Go to Actions → "Deploy EKS Infrastructure (Pulumi)" → Run workflow  
 2. Choose "up" to deploy
+3. The workflow now includes:
+   - Automatic state refresh before deployment
+   - Retry logic for transient AWS errors  
+   - Post-deployment validation of EKS cluster
+   - Node health checks and connectivity tests
 
 **Locally:**
 ```bash
@@ -65,14 +85,24 @@ pip install -r requirements.txt
 export PULUMI_CONFIG_PASSPHRASE="your-passphrase"
 pulumi stack select dev --create
 
-# Deploy infrastructure
+# Refresh state before deployment (recommended)
+pulumi refresh --yes
+
+# Deploy infrastructure with validation
 pulumi up
 ```
 
-### 3. Configure kubectl
+### 3. Configure kubectl and Validate
 ```bash
+# Update kubeconfig (replace with your region and cluster name)
 aws eks --region af-south-1 update-kubeconfig --name builder-space
+
+# Validate cluster
 kubectl get nodes
+kubectl get pods -A
+
+# Run comprehensive validation
+kubectl cluster-info
 ```
 
 ## 📁 Architecture
@@ -158,6 +188,171 @@ kubectl logs -n test deployment/test-internet-app --tail=10
 # Check resource usage
 kubectl top nodes
 kubectl top pods -A
+```
+
+## 🔧 Troubleshooting
+
+### Common Issues and Solutions
+
+#### ❌ `BucketAlreadyOwnedByYou` Error
+This error occurs when the S3 bucket already exists. **This is now handled automatically!**
+
+**Solution**: The enhanced bootstrap workflow will automatically import existing buckets.
+
+If running locally:
+```bash
+cd bootstrap
+pulumi refresh --yes  # Sync with existing state
+pulumi up            # Will import existing resources
+```
+
+#### ❌ `ResourceInUseException` for DynamoDB Table
+This error occurs when the DynamoDB table already exists. **This is now handled automatically!**
+
+**Solution**: The enhanced bootstrap workflow will automatically import existing tables.
+
+#### ❌ Pipeline Fails with Transient AWS Errors
+AWS API calls can occasionally fail due to rate limits or temporary issues.
+
+**Solution**: 
+- The workflows now include automatic retry logic (3 attempts with backoff)
+- If you see transient errors, simply re-run the workflow
+
+#### ❌ EKS Cluster Not Accessible
+If `kubectl` commands fail after deployment:
+
+**Diagnosis**:
+```bash
+# Check if cluster exists
+aws eks list-clusters --region af-south-1
+
+# Update kubeconfig
+aws eks --region af-south-1 update-kubeconfig --name builder-space
+
+# Test connectivity
+kubectl cluster-info
+```
+
+**Solution**:
+```bash
+# Verify IAM permissions
+aws sts get-caller-identity
+
+# Check cluster status
+aws eks describe-cluster --name builder-space --region af-south-1
+
+# Wait for cluster to be fully ready (may take 10-15 minutes)
+```
+
+#### ❌ Node Group Issues
+If nodes don't appear or aren't ready:
+
+**Diagnosis**:
+```bash
+kubectl get nodes -o wide
+kubectl describe nodes
+```
+
+**Common causes**:
+- Node group still initializing (wait 5-10 minutes)
+- IAM role issues  
+- Subnet/security group configuration
+
+#### ❌ Pulumi State Issues
+If you encounter state corruption or inconsistencies:
+
+**Solution**:
+```bash
+# Refresh state to sync with AWS
+pulumi refresh --yes
+
+# If that doesn't work, you can import specific resources
+pulumi import aws:s3/bucket:Bucket my-bucket my-bucket-name
+pulumi import aws:dynamodb/table:Table my-table my-table-name
+```
+
+### Validation Commands
+
+#### Bootstrap Validation
+```bash
+cd bootstrap
+
+# Validate S3 bucket
+aws s3 ls s3://$(pulumi stack output bucket_name)
+
+# Validate DynamoDB table  
+aws dynamodb describe-table --table-name $(pulumi stack output dynamodb_table_name)
+
+# Test Pulumi backend connectivity
+pulumi stack ls
+```
+
+#### Infrastructure Validation
+```bash
+# Cluster connectivity
+kubectl cluster-info
+
+# Node health
+kubectl get nodes -o wide
+kubectl describe nodes
+
+# System pods
+kubectl get pods -n kube-system
+
+# Comprehensive health check
+kubectl get all -A
+```
+
+### Recovery Procedures
+
+#### Reset Pulumi Stack (if corrupted)
+```bash
+# Back up current state first
+pulumi stack export --file backup.json
+
+# Create new stack
+pulumi stack init dev-new
+
+# Import resources if needed
+pulumi refresh --yes
+```
+
+#### Complete Environment Reset
+```bash
+# 1. Destroy main infrastructure
+pulumi destroy --yes
+
+# 2. Destroy state storage (will lose all state!)
+cd bootstrap  
+pulumi destroy --yes
+
+# 3. Start fresh
+# Follow the Quick Start guide from step 1
+```
+
+### Getting Help
+
+If you continue to experience issues:
+
+1. **Run the troubleshooting script**: `./troubleshoot.sh` - comprehensive diagnostic tool
+2. **Check the workflow logs** in GitHub Actions for detailed error messages
+3. **Run validation commands** to identify specific resource issues
+4. **Check AWS Console** to verify resource states manually
+5. **Use `pulumi refresh`** to sync state with actual AWS resources
+
+### Local Testing
+
+To test the infrastructure locally before deploying:
+
+```bash
+# Run syntax and import validation
+./test.sh
+
+# Run comprehensive troubleshooting
+./troubleshoot.sh
+
+# Preview changes without deploying
+pulumi preview
 ```
 
 ## 🗑️ Cleanup

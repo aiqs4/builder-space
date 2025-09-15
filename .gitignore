@@ -13,6 +13,7 @@ terraform-legacy/tfplan
 Pulumi.*.yaml.bak
 pulumi-state/
 venv/
+test_env/
 __pycache__/
 *.pyc
 *.pyo
