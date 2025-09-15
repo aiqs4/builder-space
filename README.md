@@ -414,6 +414,72 @@ Original Terraform code is preserved in `terraform-legacy/` for reference and ro
 - **Transparent Costs**: Clear cost breakdown and optimization recommendations
 - **Gradual Adoption**: Enable optimizations as you become comfortable with the setup
 
+## 🛠️ Development and Module Structure
+
+### Function-Based Architecture
+This project now uses a **clean function-based approach** following Pulumi best practices:
+
+```python
+# Example: Simple, declarative resource creation
+from modules.vpc import create_vpc_resources
+from modules.iam import create_iam_resources
+from modules.eks import create_eks_resources
+
+# Create VPC infrastructure
+vpc = create_vpc_resources(
+    cluster_name="my-cluster",
+    vpc_cidr="10.0.0.0/16",
+    public_subnet_cidrs=["10.0.1.0/24", "10.0.2.0/24"],
+    tags={"Environment": "dev"}
+)
+
+# Create IAM resources
+iam = create_iam_resources(
+    cluster_name="my-cluster",
+    tags={"Environment": "dev"}
+)
+
+# Create EKS cluster
+eks = create_eks_resources(
+    cluster_name="my-cluster",
+    cluster_version="1.32",
+    cluster_role_arn=iam["cluster_role_arn"],
+    node_group_role_arn=iam["node_group_role_arn"],
+    subnet_ids=vpc["public_subnet_ids"],
+    cluster_security_group_id=vpc["cluster_security_group_id"],
+    node_security_group_id=vpc["node_group_security_group_id"],
+    node_instance_types=["t3.medium"],
+    node_desired_size=2,
+    node_max_size=5,
+    node_min_size=1,
+    node_disk_size=20,
+    tags={"Environment": "dev"}
+)
+```
+
+### Module Structure
+- **`modules/vpc/`**: VPC, subnets, security groups creation
+- **`modules/iam/`**: IAM roles and policies for EKS
+- **`modules/eks/`**: EKS cluster and node group management
+- **`modules/addons/`**: Kubernetes add-ons and applications
+- **`modules/state_storage/`**: S3 and DynamoDB backend setup
+
+### Key Benefits
+- **Simple Function Calls**: Clear input/output contracts
+- **No Large Classes**: Eliminated heavy stateful wrappers
+- **Better Testability**: Easy to unit test and mock
+- **Explicit Dependencies**: Clear resource relationships
+- **Pulumi Idiomatic**: Follows Pulumi community patterns
+
+### Running Tests
+```bash
+# Test module structure and imports
+python -m unittest tests.test_modules -v
+
+# Verify syntax of all modules
+python -m py_compile modules/*/__init__.py
+```
+
 ## 🔍 Monitoring & Troubleshooting
 
 ### Cost Monitoring
