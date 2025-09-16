@@ -119,6 +119,29 @@ def create_state_storage_with_import(cluster_name: str, aws_region: str, tags: D
         )
     )
     
+    # Create KMS key for Pulumi secrets encryption
+    pulumi.log.info(f"Setting up KMS key for Pulumi secrets encryption")
+    kms_key = aws.kms.Key(
+        f"{cluster_name}-pulumi-secrets-key",
+        description=f"Pulumi secrets encryption key for {cluster_name}",
+        key_usage="ENCRYPT_DECRYPT",
+        key_spec="SYMMETRIC_DEFAULT",
+        tags={
+            **tags,
+            "Name": f"{cluster_name}-pulumi-secrets",
+            "Purpose": "Pulumi secrets encryption",
+            "Environment": "development",
+            "Module": "state-storage"
+        }
+    )
+    
+    # Create KMS alias for easier reference
+    kms_alias = aws.kms.Alias(
+        f"{cluster_name}-pulumi-secrets-alias",
+        name=f"alias/{cluster_name}-pulumi-secrets",
+        target_key_id=kms_key.key_id
+    )
+    
     # Create DynamoDB table with idempotency
     pulumi.log.info(f"Setting up DynamoDB table for state locking: {dynamodb_table_name}")
     
@@ -187,6 +210,8 @@ def create_state_storage_with_import(cluster_name: str, aws_region: str, tags: D
     return {
         "bucket_name_output": state_bucket.id,
         "dynamodb_table_name_output": state_lock_table.name,
+        "kms_key_arn": kms_key.arn,
+        "kms_key_id": kms_key.key_id,
         "backend_config": {
             "backend_type": "s3",
             "bucket": bucket_name,
@@ -199,7 +224,7 @@ def create_state_storage_with_import(cluster_name: str, aws_region: str, tags: D
             f"export PULUMI_BACKEND_URL=s3://{bucket_name}",
             "",
             "# Initialize Pulumi project with S3 backend:",
-            "pulumi stack init dev --secrets-provider=awskms://alias/pulumi-secrets",
+            f"pulumi stack init dev --secrets-provider=awskms://{kms_key.arn}",
             "",
             "# Set AWS region:",
             f"pulumi config set aws:region {aws_region}",
@@ -216,6 +241,9 @@ def create_state_storage_with_import(cluster_name: str, aws_region: str, tags: D
             "# Validate DynamoDB table:",
             f"aws dynamodb describe-table --table-name {dynamodb_table_name}",
             "",
+            "# Validate KMS key:",
+            f"aws kms describe-key --key-id {kms_key.key_id.apply(lambda id: id)}",
+            "",
             "# Test Pulumi backend connectivity:",
             "pulumi stack ls",
             "",
@@ -225,6 +253,8 @@ def create_state_storage_with_import(cluster_name: str, aws_region: str, tags: D
         # Keep references to resources for dependencies
         "_bucket": state_bucket,
         "_table": state_lock_table,
+        "_kms_key": kms_key,
+        "_kms_alias": kms_alias,
         "_bucket_config": {
             "versioning": bucket_versioning,
             "encryption": bucket_encryption,

@@ -77,18 +77,27 @@ jobs:
       run: |
         echo "🎯 Configuring Pulumi backend..."
         pulumi login ${{ secrets.PULUMI_BACKEND_URL }}
-        echo "${{ secrets.PULUMI_CONFIG_PASSPHRASE }}" | pulumi stack select dev --create
+        
+        # Get KMS key ARN from bootstrap stack
+        echo "🔑 Getting KMS key ARN from bootstrap stack..."
+        cd ..
+        BOOTSTRAP_KMS_KEY_ARN=$(cd bootstrap && pulumi stack output kms_key_arn 2>/dev/null || echo "")
+        cd -
+        
+        if [ -n "$BOOTSTRAP_KMS_KEY_ARN" ]; then
+          echo "Using KMS key for secrets: $BOOTSTRAP_KMS_KEY_ARN"
+          pulumi stack select dev --create --secrets-provider="awskms://$BOOTSTRAP_KMS_KEY_ARN"
+        else
+          echo "No KMS key found from bootstrap, using default secrets provider"
+          pulumi stack select dev --create
+        fi
         echo "✅ Pulumi backend configured"
-      env:
-        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
 
     - name: Pulumi Refresh
       run: |
         echo "🔄 Refreshing Pulumi state..."
         pulumi refresh --yes || echo "No existing state to refresh"
         echo "✅ State refresh completed"
-      env:
-        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
       if: ${{ contains(fromJson('["preview","up","refresh"]'), github.event.inputs.action) }}
 
     - name: Pulumi Preview
@@ -96,8 +105,6 @@ jobs:
         echo "👀 Previewing infrastructure changes..."
         pulumi preview --diff
         echo "✅ Preview completed"
-      env:
-        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
       if: ${{ contains(fromJson('["preview","up"]'), github.event.inputs.action) }}
 
     - name: Pulumi Up
@@ -121,8 +128,6 @@ jobs:
         done
         
         echo "✅ EKS infrastructure deployment completed"
-      env:
-        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
       if: github.event.inputs.action == 'up'
 
     - name: Post-deployment Validation
@@ -190,8 +195,6 @@ jobs:
         echo "🗑️ Destroying EKS infrastructure..."
         pulumi destroy --yes
         echo "⚠️ EKS infrastructure destroyed" >> $GITHUB_STEP_SUMMARY
-      env:
-        PULUMI_CONFIG_PASSPHRASE: ${{ secrets.PULUMI_CONFIG_PASSPHRASE }}
       if: github.event.inputs.action == 'destroy'
 
     - name: Cost Estimation Summary

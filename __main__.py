@@ -19,7 +19,6 @@ import modules.vpc as vpc_module
 import modules.iam as iam_module
 import modules.eks as eks_module
 import modules.addons as addons_module
-import modules.state_storage as state_storage_module
 
 # Export outputs for compatibility with Terraform
 

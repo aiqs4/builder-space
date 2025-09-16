@@ -6,7 +6,7 @@ Enhanced with idempotency and comprehensive validation
 
 import pulumi
 import pulumi_aws as aws
-from modules.state_storage import StateStorageResources
+from modules.state_storage import create_state_storage_with_import
 
 def main():
     """Bootstrap state storage resources"""
@@ -29,23 +29,25 @@ def main():
     pulumi.log.info(f"📍 AWS Region: {aws_region}")
     
     try:
-        # Create state storage resources
-        state_storage = StateStorageResources(
+        # Create state storage resources using function-based approach
+        state_storage = create_state_storage_with_import(
             cluster_name=cluster_name,
             aws_region=aws_region,
             tags=tags
         )
         
         # Export backend configuration
-        pulumi.export("backend_config", state_storage.backend_config)
-        pulumi.export("bucket_name", state_storage.bucket_name_output)
-        pulumi.export("dynamodb_table_name", state_storage.dynamodb_table_name_output)
+        pulumi.export("backend_config", state_storage["backend_config"])
+        pulumi.export("bucket_name", state_storage["bucket_name_output"])
+        pulumi.export("dynamodb_table_name", state_storage["dynamodb_table_name_output"])
+        pulumi.export("kms_key_arn", state_storage["kms_key_arn"])
+        pulumi.export("kms_key_id", state_storage["kms_key_id"])
         
         # Export configuration commands
-        pulumi.export("backend_configuration_commands", state_storage.get_backend_configuration_commands())
+        pulumi.export("backend_configuration_commands", state_storage["configuration_commands"])
         
         # Export validation commands
-        pulumi.export("validation_commands", state_storage.get_validation_commands())
+        pulumi.export("validation_commands", state_storage["validation_commands"])
         
         # Export next steps
         pulumi.export("next_steps", [
@@ -60,8 +62,8 @@ def main():
         pulumi.export("deployment_status", {
             "cluster_name": cluster_name,
             "aws_region": aws_region,
-            "bucket_name": state_storage.bucket_name,
-            "table_name": state_storage.dynamodb_table_name,
+            "bucket_name": state_storage["bucket_name"],
+            "table_name": state_storage["dynamodb_table_name"],
             "timestamp": pulumi.Output.all().apply(lambda _: "bootstrap-completed"),
             "idempotent": True
         })

@@ -1,6 +1,8 @@
 """
 State Storage Module
 Pure declarative infrastructure - no classes or functions
+This module is deprecated. State storage is now managed by the bootstrap stack.
+Resources are referenced but not created here to avoid interference.
 """
 
 import pulumi
@@ -17,75 +19,15 @@ tags = config.common_tags
 bucket_name = f"{cluster_name}-pulumi-state-{aws_region}"
 dynamodb_table_name = f"{cluster_name}-pulumi-state-lock"
 
-# S3 bucket for Pulumi state
-state_bucket = aws.s3.Bucket(
-    f"{cluster_name}-pulumi-state-bucket",
-    bucket=bucket_name,
-    tags={
-        **tags,
-        "Name": f"{cluster_name}-pulumi-state",
-        "Purpose": "Pulumi state storage",
-        "Environment": "development",
-        "Module": "state-storage"
-    }
-)
+# NOTE: State storage resources are created by the bootstrap stack.
+# This module only defines the expected resource names for reference.
+# Do NOT create actual resources here to avoid conflicts.
 
-# S3 bucket versioning
-bucket_versioning = aws.s3.BucketVersioning(
-    f"{cluster_name}-state-bucket-versioning",
-    bucket=state_bucket.id,
-    versioning_configuration=aws.s3.BucketVersioningVersioningConfigurationArgs(
-        status="Enabled"
-    )
-)
+# Export expected resource names for compatibility
+# These are the names that the bootstrap stack creates
+state_bucket_name = bucket_name
+state_lock_table_name = dynamodb_table_name
 
-# S3 bucket encryption
-bucket_encryption = aws.s3.BucketServerSideEncryptionConfiguration(
-    f"{cluster_name}-state-bucket-encryption",
-    bucket=state_bucket.id,
-    rules=[
-        aws.s3.BucketServerSideEncryptionConfigurationRuleArgs(
-            apply_server_side_encryption_by_default=aws.s3.BucketServerSideEncryptionConfigurationRuleApplyServerSideEncryptionByDefaultArgs(
-                sse_algorithm="AES256"
-            ),
-            bucket_key_enabled=True
-        )
-    ]
-)
-
-# S3 bucket public access block
-bucket_public_access_block = aws.s3.BucketPublicAccessBlock(
-    f"{cluster_name}-state-bucket-pab",
-    bucket=state_bucket.id,
-    block_public_acls=True,
-    block_public_policy=True,
-    ignore_public_acls=True,
-    restrict_public_buckets=True
-)
-
-# DynamoDB table for state locking
-state_lock_table = aws.dynamodb.Table(
-    f"{cluster_name}-pulumi-state-lock-table",
-    name=dynamodb_table_name,
-    billing_mode="PAY_PER_REQUEST",
-    hash_key="LockID",
-    attributes=[
-        aws.dynamodb.TableAttributeArgs(
-            name="LockID",
-            type="S"
-        )
-    ],
-    tags={
-        **tags,
-        "Name": f"{cluster_name}-pulumi-state-lock",
-        "Purpose": "Pulumi state locking",
-        "Environment": "development",
-        "Module": "state-storage"
-    }
-)
-
-# Export information for setup
-state_bucket_name = state_bucket.bucket
-state_bucket_arn = state_bucket.arn
-state_lock_table_name = state_lock_table.name
-state_lock_table_arn = state_lock_table.arn
+# For backward compatibility, export empty ARNs since resources aren't created here
+state_bucket_arn = ""
+state_lock_table_arn = ""

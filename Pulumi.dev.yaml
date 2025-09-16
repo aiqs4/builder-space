@@ -40,4 +40,3 @@ config:
     Project: builder-space-eks
     Environment: development
     CostCenter: development
-encryptionsalt: v1:yD8N+El85eo=:v1:8rTiv2vkNlKV7ZCS:x02F7dXslBzOSpUq42fZ3wgVx8jvIw==
