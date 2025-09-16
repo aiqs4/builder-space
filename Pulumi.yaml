@@ -4,4 +4,4 @@ runtime:
   name: python
   options:
     toolchain: pip
-    virtualenv: venv
+    # virtualenv: venv

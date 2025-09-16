@@ -1,4 +1,3 @@
-encryptionsalt: v1:gM3NXSJwNv0=:v1:8pbxt1Z8JgwSZTU8:CPT0/mkQfc1Qj0NFvFt5cvD2HVwMJQ==
 config:
   aws:region: af-south-1
   builder-space-eks:cluster_name: builder-space
@@ -6,38 +5,39 @@ config:
   builder-space-eks:node_instance_types:
     - t4g.small
     - t3.small
-  builder-space-eks:node_desired_size: 2
-  builder-space-eks:node_max_size: 3
-  builder-space-eks:node_min_size: 1
-  builder-space-eks:node_disk_size: 20
+  builder-space-eks:node_desired_size: "2"
+  builder-space-eks:node_max_size: "3"
+  builder-space-eks:node_min_size: "1"
+  builder-space-eks:node_disk_size: "20"
   builder-space-eks:vpc_cidr: 10.0.0.0/16
   builder-space-eks:public_subnet_cidrs:
     - 10.0.1.0/24
     - 10.0.2.0/24
-  builder-space-eks:enable_dns_hostnames: true
-  builder-space-eks:enable_dns_support: true
-  builder-space-eks:map_public_ip_on_launch: true
-  builder-space-eks:enable_spot_instances: false
-  builder-space-eks:enable_reserved_instances: false
-  builder-space-eks:enable_cluster_autoscaler: false
-  builder-space-eks:enable_scheduled_scaling: false
-  builder-space-eks:enable_cost_monitoring: true
-  builder-space-eks:cost_alert_threshold: 100
-  builder-space-eks:use_existing_cluster_role: false
+  builder-space-eks:enable_dns_hostnames: "true"
+  builder-space-eks:enable_dns_support: "true"
+  builder-space-eks:map_public_ip_on_launch: "true"
+  builder-space-eks:enable_spot_instances: "false"
+  builder-space-eks:enable_reserved_instances: "false"
+  builder-space-eks:enable_cluster_autoscaler: "false"
+  builder-space-eks:enable_scheduled_scaling: "false"
+  builder-space-eks:enable_cost_monitoring: "true"
+  builder-space-eks:cost_alert_threshold: "100"
+  builder-space-eks:use_existing_cluster_role: "false"
   builder-space-eks:existing_cluster_role_name: ""
-  builder-space-eks:use_existing_node_role: false
+  builder-space-eks:use_existing_node_role: "false"
   builder-space-eks:existing_node_role_name: ""
-  builder-space-eks:use_existing_kms_key: false
+  builder-space-eks:use_existing_kms_key: "false"
   builder-space-eks:existing_kms_key_arn: ""
   builder-space-eks:cluster_enabled_log_types:
     - api
     - audit
     - authenticator
-  builder-space-eks:cloudwatch_log_group_retention_in_days: 30
-  builder-space-eks:enable_vpc_cni_addon: true
-  builder-space-eks:enable_coredns_addon: true
-  builder-space-eks:enable_kube_proxy_addon: true
+  builder-space-eks:cloudwatch_log_group_retention_in_days: "30"
+  builder-space-eks:enable_vpc_cni_addon: "true"
+  builder-space-eks:enable_coredns_addon: "true"
+  builder-space-eks:enable_kube_proxy_addon: "true"
   builder-space-eks:tags:
     Project: builder-space-eks
     Environment: development
     CostCenter: development
+encryptionsalt: v1:yD8N+El85eo=:v1:8rTiv2vkNlKV7ZCS:x02F7dXslBzOSpUq42fZ3wgVx8jvIw==
