@@ -22,7 +22,7 @@ jobs:
   state-bootstrap:
     runs-on: ubuntu-latest
     environment: production
-    
+
     steps:
     - name: Checkout
       uses: actions/checkout@v4
@@ -33,91 +33,106 @@ jobs:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
         aws-region: ${{ secrets.AWS_REGION }}
 
-    - name: Setup Python
+    - name: Setup Python & Pulumi
       uses: actions/setup-python@v6
       with:
         python-version: '3.11'
 
-    - name: Setup Pulumi
-      uses: pulumi/actions@v6
+    - uses: pulumi/actions@v6
       with:
         pulumi-version: latest
 
-    - name: Cache Python dependencies
+    - name: Cache dependencies
       uses: actions/cache@v4
       with:
         path: ~/.cache/pip
-        key: ${{ runner.os }}-pip-bootstrap-${{ hashFiles('bootstrap/requirements.txt') }}
-        restore-keys: |
-          ${{ runner.os }}-pip-bootstrap-
+        key: ${{ runner.os }}-pip-${{ hashFiles('bootstrap/requirements.txt') }}
 
-    - name: Install Python dependencies (Bootstrap)
+    - name: Install dependencies
+      run: cd bootstrap && pip install -r requirements.txt
+
+    - name: Bootstrap KMS key if needed
+      id: kms-bootstrap
+      run: |
+        # Check if our Pulumi KMS alias exists
+        if aws kms describe-key --key-id alias/pulumi-secrets >/dev/null 2>&1; then
+          echo "kms_exists=true" >> $GITHUB_OUTPUT
+          echo "✅ KMS key already exists"
+        else
+          echo "🔑 Creating Pulumi KMS key..."
+          KEY_ID=$(aws kms create-key \
+            --description "Pulumi state encryption key" \
+            --key-usage ENCRYPT_DECRYPT \
+            --query 'KeyMetadata.KeyId' \
+            --output text)
+
+          aws kms create-alias --alias-name alias/pulumi-secrets --target-key-id $KEY_ID
+          echo "kms_exists=false" >> $GITHUB_OUTPUT
+          echo "✅ KMS key created: alias/pulumi-secrets"
+        fi
+
+    - name: Configure Pulumi with KMS
       run: |
         cd bootstrap
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-
-    - name: Validate AWS credentials and permissions
-      run: |
-        echo "🔐 Validating AWS credentials..."
-        aws sts get-caller-identity
-        aws s3 ls || echo "S3 access check failed - will retry"
-        aws dynamodb list-tables || echo "DynamoDB access check failed - will retry"
-        echo "✅ AWS credentials validated"
-
-    - name: Configure Pulumi (Bootstrap)
-      run: |
-        cd bootstrap
-        echo "🎯 Configuring Pulumi backend..."
-        BACKEND_URL="${{ secrets.PULUMI_BACKEND_URL }}"
-        pulumi login ${BACKEND_URL:-"--local"}
+        export PULUMI_SECRETS_PROVIDER="awskms://alias/pulumi-secrets"
         
-        # Simple stack selection
-        pulumi stack select dev --create
-        echo "✅ Pulumi backend configured"
+        # Always start fresh for predictable behavior
+        rm -rf .pulumi
+        pulumi login ${PULUMI_BACKEND_URL:-"--local"}
+        pulumi stack init dev --secrets-provider="awskms://alias/pulumi-secrets"
 
-    - name: Pulumi Up (Bootstrap)
+    - name: Execute Pulumi action
+      env:
+        PULUMI_SECRETS_PROVIDER: "awskms://alias/pulumi-secrets"
       run: |
         cd bootstrap
-        echo "� Deploying state storage infrastructure..."
-        
-        # Single command - Pulumi handles import/deploy automatically
-        pulumi up --yes
-        
-        echo "## 🚀 State Storage Bootstrap Completed" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "### Resources Created:" >> $GITHUB_STEP_SUMMARY
-        echo "- S3 Bucket: $(pulumi stack output bucket_name)" >> $GITHUB_STEP_SUMMARY
-        echo "- DynamoDB Table: $(pulumi stack output dynamodb_table_name)" >> $GITHUB_STEP_SUMMARY
-        echo "- KMS Key: $(pulumi stack output kms_key_arn)" >> $GITHUB_STEP_SUMMARY
-      if: github.event.inputs.action == 'up'
 
-    - name: Pulumi Preview (Bootstrap)
-      run: |
-        cd bootstrap
-        echo "👀 Previewing infrastructure changes..."
-        pulumi preview --diff
-      if: github.event.inputs.action == 'preview'
-
-    - name: Pulumi Refresh (Bootstrap)
-      run: |
-        cd bootstrap
-        echo "🔄 Refreshing Pulumi state..."
-        pulumi refresh --yes
-      if: github.event.inputs.action == 'refresh'
-
-    - name: Pulumi Destroy (Bootstrap)
-      run: |
-        cd bootstrap
-        echo "🗑️ Destroying state storage infrastructure..."
-        pulumi destroy --yes
-        echo "⚠️ State storage infrastructure destroyed" >> $GITHUB_STEP_SUMMARY
-      if: github.event.inputs.action == 'destroy'
-
-    - name: Pulumi Destroy (Bootstrap)
-      run: |
-        cd bootstrap
-        echo "🗑️ Destroying state storage infrastructure..."
-        pulumi destroy --yes
-        echo "⚠️ State storage infrastructure destroyed. State files will be lost!" >> $GITHUB_STEP_SUMMARY
-      if: github.event.inputs.action == 'destroy'
+        case "${{ github.event.inputs.action }}" in
+          "up")
+            # Check if resources already exist and handle them
+            RESOURCES_EXIST=false
+            
+            if aws s3 ls s3://builder-space-pulumi-state-af-south-1 >/dev/null 2>&1; then
+              echo "📦 S3 bucket exists, will adopt it..."
+              RESOURCES_EXIST=true
+            fi
+            
+            if aws dynamodb describe-table --table-name builder-space-pulumi-state-lock >/dev/null 2>&1; then
+              echo "🗄️ DynamoDB table exists, will adopt it..."
+              RESOURCES_EXIST=true
+            fi
+            
+            if [ "$RESOURCES_EXIST" = true ]; then
+              echo "🔄 Adopting existing resources..."
+              pulumi refresh --yes --clear-state
+            fi
+            
+            # Now deploy (will create new or adopt existing)
+            pulumi up --yes
+            {
+              echo "## 🚀 Bootstrap Infrastructure Deployed"
+              echo ""
+              echo "### Resources:"
+              echo "- **S3 Bucket**: \`$(pulumi stack output bucket_name 2>/dev/null || echo 'pending')\`"
+              echo "- **DynamoDB Table**: \`$(pulumi stack output dynamodb_table_name 2>/dev/null || echo 'pending')\`"
+              echo "- **KMS Key**: \`$(pulumi stack output kms_key_arn 2>/dev/null || echo 'alias/pulumi-secrets')\`"
+              echo "- **State Encryption**: AWS KMS enabled ✅"
+            } >> $GITHUB_STEP_SUMMARY
+            ;;
+          "preview")
+            pulumi preview --diff
+            ;;
+          "refresh")
+            pulumi refresh --yes
+            ;;
+          "destroy")
+            pulumi destroy --yes
+            echo "⚠️ **Bootstrap infrastructure destroyed**" >> $GITHUB_STEP_SUMMARY
+            if [[ "${{ steps.kms-bootstrap.outputs.kms_exists }}" == "false" ]]; then
+              echo "🗑️ Cleaning up KMS key..."
+              aws kms delete-alias --alias-name alias/pulumi-secrets
+              # Schedule key deletion (7 day minimum)
+              aws kms schedule-key-deletion --key-id alias/pulumi-secrets --pending-window-in-days 7
+            fi
+            ;;
+        esac
