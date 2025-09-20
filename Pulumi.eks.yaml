@@ -1,0 +1,7 @@
+encryptionsalt: v1:kR/+R7S1H/o=:v1:Xt3cKkVEWEMvHq7j:zoKfO9/klafVdZeEGzqCb2be/F+g8Q==
+config:
+  aws:region: af-south-1
+  builder-space-eks:cluster_name: builder-space
+  builder-space-eks:node_count: "2"
+  builder-space-eks:instance_type: t3.small
+  builder-space-eks:use_spot: "true"

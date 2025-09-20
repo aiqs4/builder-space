@@ -1,1 +1,0 @@
-# Migration from Terraform to Pulumi

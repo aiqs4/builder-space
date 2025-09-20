@@ -1,6 +1,26 @@
 """
-Configuration management for Builder Space EKS deployment
+Simple EKS Configuration
 """
+
+import pulumi
+
+def get_config():
+    """Get simple configuration"""
+    config = pulumi.Config()
+    
+    cluster_name = config.get("cluster_name", "builder-space")
+    node_count = config.get_int("node_count", 2)
+    instance_type = config.get("instance_type", "t3.small")
+    use_spot = config.get_bool("use_spot", True)
+    
+    class Config:
+        def __init__(self):
+            self.cluster_name = cluster_name
+            self.node_count = node_count
+            self.instance_type = instance_type
+            self.use_spot = use_spot
+    
+    return Config()
 
 import pulumi
 from typing import Dict, Any, List

@@ -1,3 +1,5 @@
 config:
   aws:region: af-south-1
   builder-space-state-storage:cluster_name: builder-space
+secretsprovider: awskms://alias/pulumi-secrets
+encryptedkey: AQICAHgSEwow4gxXDzaacCVJJPHuWyfoeLQk81TvIxRgmcpKMwEIQtwn04XN46VF+HYA3LqSAAAAfjB8BgkqhkiG9w0BBwagbzBtAgEAMGgGCSqGSIb3DQEHATAeBglghkgBZQMEAS4wEQQMteW5uKrmTp2Jl1RKAgEQgDtu74+Rzd946pe9tnXYYZQde/ngnnHYYbhRj++ezLGoFBSFD1UzUSus3u1TgsN5x5vqii5RiEOqsx2tdw==
