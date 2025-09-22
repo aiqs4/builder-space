@@ -1,0 +1,6 @@
+name: builder-space-k8s
+description: Kubernetes resources deployment for EKS cluster - ArgoCD and applications
+runtime:
+  name: python
+  options:
+    toolchain: pip
