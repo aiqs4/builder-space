@@ -6,7 +6,7 @@ Deploys ArgoCD using Helm chart to existing EKS cluster
 import pulumi
 import pulumi_aws as aws
 import pulumi_kubernetes as k8s
-from pulumi_kubernetes.helm.v4 import Chart, ChartOpts
+from pulumi_kubernetes.helm.v4 import Chart, ChartArgs
 
 # Configuration
 config = pulumi.Config()
@@ -69,7 +69,7 @@ argocd_ns = k8s.core.v1.Namespace(
 # Deploy ArgoCD using Helm chart
 argocd_chart = Chart(
     "argocd",
-    ChartOpts(
+    ChartArgs(
         chart="argo-cd",
         version="7.7.9",  # Latest stable version
         namespace=argocd_namespace,
