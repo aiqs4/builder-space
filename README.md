@@ -137,21 +137,41 @@ kubectl get pods -A
 kubectl cluster-info
 ```
 
+### 4. Deploy ArgoCD (GitOps Platform)
+**Via GitHub Actions:**
+1. Go to Actions → "Deploy Kubernetes Resources (ArgoCD)" → Run workflow
+2. Choose "up" to deploy ArgoCD
+3. Access ArgoCD using the LoadBalancer URL from the workflow output
+
+**Locally:**
+```bash
+cd infra-k8s
+pip install -r requirements.txt
+export PULUMI_CONFIG_PASSPHRASE="your-passphrase"
+pulumi stack select k8s --create
+pulumi up
+
+# Get ArgoCD access details
+kubectl get svc argocd-server -n argocd
+kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d
+```
+
+📖 **See [`infra-k8s/README.md`](infra-k8s/README.md) for detailed ArgoCD setup instructions.**
+
 ## 📁 Architecture
 
 ### Modular Structure
 ```
-modules/
-├── vpc/                 # VPC, subnets, security groups  
-├── iam/                 # IAM roles and policies
-├── eks/                 # EKS cluster and node groups
-├── addons/              # Kubernetes add-ons and applications
-└── state_storage/       # S3 + DynamoDB for state storage
+├── bootstrap/           # State storage bootstrap (S3 + DynamoDB)
+├── infra-k8s/          # Kubernetes resources (ArgoCD, applications)
+├── modules/            # Infrastructure modules (VPC, IAM, EKS, addons)
+└── .github/workflows/  # CI/CD pipelines
 ```
 
 ### Workflows
 - **State Storage Bootstrap** (`.github/workflows/backend-bootstrap.yml`): Creates state storage infrastructure
 - **Main Infrastructure** (`.github/workflows/deploy.yml`): Deploys EKS and supporting resources
+- **Kubernetes Resources** (`.github/workflows/pulumi-k8s.yml`): Deploys ArgoCD and K8s applications
 
 ## 💰 Cost Optimization
 

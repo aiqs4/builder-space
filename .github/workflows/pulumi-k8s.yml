@@ -1,0 +1,94 @@
+name: Deploy Kubernetes Resources (ArgoCD)
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action'
+        required: true
+        default: 'up'
+        type: choice
+        options:
+        - up
+        - preview
+        - destroy
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  deploy-k8s:
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region: ${{ secrets.AWS_REGION }}
+    
+    - uses: actions/setup-python@v6
+      with:
+        python-version: '3.11'
+    
+    - uses: pulumi/actions@v6
+      with:
+        pulumi-version: latest
+    
+    - name: Install dependencies
+      run: |
+        cd infra-k8s
+        pip install -r requirements.txt
+    
+    - name: Validate EKS cluster access
+      run: |
+        # Update kubeconfig and validate cluster access
+        aws eks --region ${{ secrets.AWS_REGION }} update-kubeconfig --name builder-space
+        kubectl get nodes
+        kubectl cluster-info
+    
+    - name: Deploy Kubernetes resources
+      run: |
+        cd infra-k8s
+        pulumi login ${{ secrets.PULUMI_BACKEND_URL }}
+        pulumi stack select k8s --create
+        
+        case "${{ github.event.inputs.action }}" in
+          "up")
+            echo "Deploying Kubernetes resources..."
+            pulumi up --yes
+            ;;
+          "preview")
+            echo "Previewing Kubernetes resources..."
+            pulumi preview
+            ;;
+          "destroy")
+            echo "Destroying Kubernetes resources..."
+            pulumi destroy --yes
+            ;;
+        esac
+    
+    - name: Export ArgoCD access information
+      if: github.event.inputs.action == 'up'
+      run: |
+        cd infra-k8s
+        echo "=== ArgoCD Access Information ==="
+        pulumi stack output argocd_endpoint || echo "ArgoCD endpoint not ready yet"
+        echo "Username: admin"
+        echo "Initial password command:"
+        echo "kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.password}' | base64 -d"
+        
+        echo "=== Waiting for LoadBalancer to be ready ==="
+        for i in {1..10}; do
+          LB_HOSTNAME=$(kubectl get svc argocd-server -n argocd -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+          if [ -n "$LB_HOSTNAME" ]; then
+            echo "ArgoCD is available at: http://$LB_HOSTNAME"
+            break
+          else
+            echo "Waiting for LoadBalancer... (attempt $i/10)"
+            sleep 30
+          fi
+        done

@@ -1,0 +1,4 @@
+config:
+  aws:region: af-south-1
+  builder-space-k8s:cluster_name: builder-space
+  builder-space-k8s:argocd_namespace: argocd
