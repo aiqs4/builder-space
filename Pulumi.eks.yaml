@@ -5,3 +5,4 @@ config:
   builder-space-eks:node_count: "2"
   builder-space-eks:instance_type: t3.small
   builder-space-eks:use_spot: "true"
+  builder-space-eks:github_actions_role_arn: arn:aws:iam::207567777877:role/github-deploy-eks

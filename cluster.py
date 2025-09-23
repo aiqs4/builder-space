@@ -1,6 +1,6 @@
 """
 Simple EKS Cluster - KISS approach
-Minimal IAM roles + EKS cluster
+Minimal IAM roles + EKS cluster + GitHub Actions access
 """
 
 import pulumi
@@ -10,11 +10,14 @@ import json
 # Configuration - keep it simple
 CLUSTER_NAME = "builder-space"
 NODE_COUNT = 5
-INSTANCE_TYPE = "t4g.medium"  # Free tier eligible
+INSTANCE_TYPE = "t4g.medium"
 
 # Get current region and account
 current = aws.get_caller_identity()
 region = aws.get_region()
+
+# GitHub Actions role ARN from config
+github_actions_role_arn = pulumi.Config().get("github_actions_role_arn")
 
 # Simple VPC (EKS needs explicit subnets)
 vpc = aws.ec2.Vpc("vpc",
@@ -89,16 +92,33 @@ aws.iam.RolePolicyAttachment("node-registry-policy",
     policy_arn="arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly",
     role=node_role.name)
 
-# EKS Cluster - simple and cheap
+# EKS Cluster with API authentication
 cluster = aws.eks.Cluster("cluster",
     name=CLUSTER_NAME,
     role_arn=cluster_role.arn,
-    version="1.33",  # Current stable version
+    version="1.33",
     vpc_config=aws.eks.ClusterVpcConfigArgs(
         subnet_ids=[subnet1.id, subnet2.id],
         endpoint_public_access=True,
-        endpoint_private_access=False,  # Cheaper
+        endpoint_private_access=False,
+    ),
+    access_config=aws.eks.ClusterAccessConfigArgs(
+        authentication_mode="API_AND_CONFIG_MAP"
     ))
+
+# GitHub Actions EKS Access Entry
+if github_actions_role_arn:
+    github_access = aws.eks.AccessEntry("github-actions-access",
+        cluster_name=cluster.name,
+        principal_arn=github_actions_role_arn,
+        type="STANDARD")
+
+    aws.eks.AccessPolicyAssociation("github-actions-cluster-admin",
+        cluster_name=cluster.name,
+        principal_arn=github_actions_role_arn,
+        policy_arn="arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
+        access_scope=aws.eks.AccessScopeArgs(type="cluster"),
+        depends_on=[github_access])
 
 # Node Group - minimal configuration
 node_group = aws.eks.NodeGroup("nodes",
@@ -106,8 +126,8 @@ node_group = aws.eks.NodeGroup("nodes",
     node_role_arn=node_role.arn,
     subnet_ids=[subnet1.id, subnet2.id],
     instance_types=[INSTANCE_TYPE],
-    ami_type="AL2023_ARM_64_STANDARD",   # 👈 match Graviton ARM
-    capacity_type="SPOT",  # Spot not available on free tier
+    ami_type="AL2023_ARM_64_STANDARD",
+    capacity_type="SPOT",
     scaling_config=aws.eks.NodeGroupScalingConfigArgs(
         desired_size=NODE_COUNT,
         max_size=NODE_COUNT + 1,
@@ -115,24 +135,39 @@ node_group = aws.eks.NodeGroup("nodes",
     ),
     disk_size=20)
 
-# Simple RDS for storage - cheap and basic
+# Spot Node Group
+spot_nodes = aws.eks.NodeGroup("spot-nodes",
+    cluster_name=cluster.name,
+    node_role_arn=node_role.arn,
+    subnet_ids=[subnet1.id, subnet2.id],
+    instance_types=["t4g.xlarge"],
+    ami_type="AL2023_ARM_64_STANDARD",
+    capacity_type="SPOT",
+    scaling_config=aws.eks.NodeGroupScalingConfigArgs(
+        desired_size=2,
+        min_size=0,
+        max_size=3,
+    ),
+    disk_size=40)
+
+# Simple RDS for storage
 db_subnet_group = aws.rds.SubnetGroup("db-subnet-group",
     subnet_ids=[subnet1.id, subnet2.id])
 
 database = aws.rds.Instance("postgres-db",
     db_name="builderspace",
     engine="postgres",
-    engine_version="17.6",  # Valid version for af-south-1
-    instance_class="db.t3.micro",  # Free tier eligible
+    engine_version="17.6",
+    instance_class="db.t3.micro",
     allocated_storage=20,
     storage_type="gp2",
     db_subnet_group_name=db_subnet_group.name,
-    skip_final_snapshot=True,  # For dev environments
+    skip_final_snapshot=True,
     username="postgres",
-    password="changeme123",  # Change this!
+    password="changeme123",
     publicly_accessible=False)
 
-# Outputs - just the essentials
+# Outputs
 pulumi.export("cluster_name", cluster.name)
 pulumi.export("cluster_endpoint", cluster.endpoint)
 pulumi.export("database_endpoint", database.endpoint)
