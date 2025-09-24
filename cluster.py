@@ -106,19 +106,29 @@ cluster = aws.eks.Cluster("cluster",
         authentication_mode="API_AND_CONFIG_MAP"
     ))
 
-# GitHub Actions EKS Access Entry
-if github_actions_role_arn:
-    github_access = aws.eks.AccessEntry("github-actions-access",
-        cluster_name=cluster.name,
-        principal_arn=github_actions_role_arn,
-        type="STANDARD")
 
-    aws.eks.AccessPolicyAssociation("github-actions-cluster-admin",
-        cluster_name=cluster.name,
-        principal_arn=github_actions_role_arn,
-        policy_arn="arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
-        access_scope=aws.eks.AccessScopeArgs(type="cluster"),
-        depends_on=[github_access])
+github_access = aws.eks.AccessEntry("github-actions-access",
+    cluster_name=cluster.name,
+    principal_arn=github_actions_role_arn,
+    type="STANDARD")
+
+aws.eks.AccessPolicyAssociation("github-actions-cluster-admin",
+    cluster_name=cluster.name,
+    principal_arn=github_actions_role_arn,
+    policy_arn="arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy",
+    access_scope=aws.eks.AccessPolicyAssociationAccessScopeArgs(type="cluster"))
+
+# Namespace-specific access (e.g., for 'dev' and 'staging' namespaces)
+# aws.eks.AccessPolicyAssociation("github-actions-namespace-access",
+#     cluster_name=cluster.name,
+#     principal_arn=github_actions_role_arn,
+#     policy_arn="arn:aws:eks::aws:cluster-access-policy/AmazonEKSViewPolicy",  # Example: View-only policy
+#     access_scope=aws.eks.AccessPolicyAssociationAccessScopeArgs(
+#         type="namespace",
+#         namespaces=["dev", "staging"]
+#     ),
+#     depends_on=[github_access]
+# )
 
 # Node Group - minimal configuration
 node_group = aws.eks.NodeGroup("nodes",
