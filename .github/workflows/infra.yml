@@ -1,0 +1,63 @@
+name: Infra Deploy
+
+on:
+  # push:
+  #   paths:
+  #     - 'infra-k8s/**'
+  #     - 'infra-k8s-dns/**'
+  #     - '.github/workflows/infra.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write  # for OIDC to cloud (if configured later)
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+      ACME_EMAIL: ${{ secrets.ACME_EMAIL }}
+      AWS_REGION: af-south-1
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies (root + stacks)
+        run: |
+          python -m venv venv
+          . venv/bin/activate
+          pip install -r requirements.txt || true
+          pip install -r infra-k8s/requirements.txt
+          pip install -r infra-k8s-dns/requirements.txt || true
+
+      - name: Configure ACME email in infra-k8s
+        run: |
+          . venv/bin/activate
+          pulumi stack select ${{ secrets.PULUMI_K8S_STACK }} --cwd infra-k8s
+          pulumi config set builder-space-k8s:acme_email "$ACME_EMAIL" --cwd infra-k8s --stack ${{ secrets.PULUMI_K8S_STACK }}
+
+      - name: Refresh DNS stack (so DS record appears when ready)
+        run: |
+          . venv/bin/activate
+          pulumi stack select ${{ secrets.PULUMI_DNS_STACK }} --cwd infra-k8s-dns
+          pulumi up --yes --skip-preview --cwd infra-k8s-dns --stack ${{ secrets.PULUMI_DNS_STACK }}
+
+      - name: Deploy K8s stack
+        run: |
+          . venv/bin/activate
+          pulumi stack select ${{ secrets.PULUMI_K8S_STACK }} --cwd infra-k8s
+          pulumi up --yes --skip-preview --cwd infra-k8s --stack ${{ secrets.PULUMI_K8S_STACK }}
+
+      - name: Show Outputs
+        run: |
+          . venv/bin/activate
+          echo 'DNS Stack Outputs:'
+          pulumi stack output --cwd infra-k8s-dns --stack ${{ secrets.PULUMI_DNS_STACK }} || true
+          echo 'K8s Stack Outputs:'
+          pulumi stack output --cwd infra-k8s --stack ${{ secrets.PULUMI_K8S_STACK }} || true

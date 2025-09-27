@@ -56,20 +56,7 @@ jobs:
         pulumi login ${{ secrets.PULUMI_BACKEND_URL }}
         pulumi stack select k8s --create
         
-        case "${{ github.event.inputs.action }}" in
-          "up")
-            echo "Deploying Kubernetes resources..."
-            pulumi up --yes
-            ;;
-          "preview")
-            echo "Previewing Kubernetes resources..."
-            pulumi preview
-            ;;
-          "destroy")
-            echo "Destroying Kubernetes resources..."
-            pulumi destroy --yes
-            ;;
-        esac
+        pulumi up --yes
     
     - name: Export ArgoCD access information
       if: github.event.inputs.action == 'up'

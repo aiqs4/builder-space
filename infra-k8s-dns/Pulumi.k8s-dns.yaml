@@ -1,0 +1,8 @@
+encryptionsalt: v1:KSI2ryP+zy4=:v1:TvGHKxqbmbI9z0pG:DOWVIYVCGVESM/fSUJlQ/LEhGdU/lg==
+config:
+  aws:region: af-south-1
+  eks-dns-zone:domain: lightsphere.space
+  eks-dns-zone:parentZoneId: Z04469561CJPDOH3F4EMD
+  eks-dns-zone:clusterOidcIssuer: https://oidc.eks.af-south-1.amazonaws.com/id/08C4ED396B4D866B689A188760B14494
+  # eks-dns-zone:github_actions_role_arn: arn:aws:iam::207567777877:role/github-deploy-eks
+
