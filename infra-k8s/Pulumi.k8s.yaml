@@ -3,6 +3,6 @@ config:
   builder-space-k8s:cluster_name: builder-space
   builder-space-k8s:argocd_namespace: argocd
   builder-space-k8s:domain_name: k8s.lightsphere.space
-  builder-space-k8s:dns_stack: your-org/infra-k8s-dns/k8s-dns  # TODO: replace with actual org/project/stack
+  builder-space-k8s:dns_stack: infra-k8s-dns/k8s-dns  # TODO: replace with actual org/project/stack
   builder-space-k8s:acme_email: info@lightsphere.space  # override via pulumi config set if needed
 encryptionsalt: v1:atndwWQOdGo=:v1:MslpatdTNGSpBE+b:Ir2Kgc1MWiUyk7JAZKcl68FS6Y7cPg==

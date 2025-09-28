@@ -14,20 +14,60 @@ cluster_name = config.get("cluster_name") or "builder-space"
 aws_region = config.get("aws:region") or "af-south-1"
 acme_email = config.get("acme_email") or "info@lightsphere.space"
 
+# TODO: enable below when DNS stack is ready
 # Reference DNS stack providing the hosted zone & DNSSEC outputs
-dns_stack_name = config.require("dns_stack")  # e.g. org/project/stack for infra-k8s-dns
-dns_stack = pulumi.StackReference(dns_stack_name)
+# Accept both formats:
+#   1) Pulumi Cloud: <org>/<project>/<stack>
+#   2) Self-managed backend (S3/local): <project>/<stack>
+# You are using an S3 backend (see `pulumi whoami --verbose`), so omit the org (or migrate to Cloud to use one).
+# dns_stack_input = config.require("dns_stack")
+# parts = dns_stack_input.split("/")
+# if len(parts) == 2:
+#     # project/stack form (self-managed backend)
+#     dns_stack_fq = dns_stack_input
+# elif len(parts) == 3:
+#     # org/project/stack form (Pulumi Cloud backend)
+#     dns_stack_fq = dns_stack_input
+# else:
+#     raise Exception("dns_stack config value must be either 'project/stack' (self-managed) or 'org/project/stack' (Pulumi Cloud). Got: %s" % dns_stack_input)
 
-subdomain_zone_id = dns_stack.get_output("subdomain_zone_id")
-subdomain_nameservers = dns_stack.get_output("subdomain_name_servers")
-dnssec_ds_record = dns_stack.get_output("dnssec_ds_record")
-domain_name_output = dns_stack.get_output("subdomain_zone_name")
+# dns_stack = pulumi.StackReference(dns_stack_fq)
+
+# subdomain_zone_id = dns_stack.get_output("subdomain_zone_id")
+# subdomain_nameservers = dns_stack.get_output("subdomain_name_servers")
+# dnssec_ds_record = dns_stack.get_output("dnssec_ds_record")
+# domain_name_output = dns_stack.get_output("subdomain_zone_name")
 
 # Allow override via config (optional); fallback to referenced zone name
-domain_name = config.get("domain_name") or domain_name_output
+# domain_name = config.get("domain_name") or domain_name_output
+domain_name = config.get("domain_name")
 
 # Get cluster info
 cluster_info = aws.eks.get_cluster(name=cluster_name)
+
+# Derive OIDC issuer robustly (EKS describeCluster returns identities[0].oidcs list)
+oidc_issuer_override = config.get("cluster_oidc_issuer")
+
+def _derive_oidc_issuer(ci: aws.eks.GetClusterResult):
+    try:
+        if ci.identities and len(ci.identities) > 0:
+            ident = ci.identities[0]
+            # Newer provider gives ident.oidcs (list). Fallback to ident.oidc if present.
+            if hasattr(ident, 'oidcs') and ident.oidcs and len(ident.oidcs) > 0 and hasattr(ident.oidcs[0], 'issuer'):
+                return ident.oidcs[0].issuer
+            if hasattr(ident, 'oidc') and hasattr(ident.oidc, 'issuer'):
+                return ident.oidc.issuer
+    except Exception:
+        return None
+    return None
+
+derived_oidc_issuer = _derive_oidc_issuer(cluster_info)
+if oidc_issuer_override:
+    oidc_issuer = oidc_issuer_override
+elif derived_oidc_issuer:
+    oidc_issuer = derived_oidc_issuer
+else:
+    raise Exception("Unable to determine OIDC issuer automatically. Provide config 'builder-space-k8s:cluster_oidc_issuer'.")
 current = aws.get_caller_identity()
 current_region = aws.get_region()
 
@@ -36,7 +76,7 @@ k8s_provider = k8s.Provider("k8s-provider")
 
 # IAM Role for External DNS
 external_dns_role = aws.iam.Role("external-dns-role",
-    assume_role_policy=cluster_info.identities[0].oidc.issuer.apply(
+    assume_role_policy=pulumi.Output.from_input(oidc_issuer).apply(
         lambda issuer: json.dumps({
             "Version": "2012-10-17",
             "Statement": [{
@@ -74,7 +114,7 @@ aws.iam.RolePolicy("external-dns-policy",
 
 # IAM Role for Cluster Autoscaler
 cluster_autoscaler_role = aws.iam.Role("cluster-autoscaler-role",
-    assume_role_policy=cluster_info.identities[0].oidc.issuer.apply(
+    assume_role_policy=pulumi.Output.from_input(oidc_issuer).apply(
         lambda issuer: json.dumps({
             "Version": "2012-10-17",
             "Statement": [{
@@ -126,6 +166,19 @@ for name, ns in namespaces.items():
         metadata=k8s.meta.v1.ObjectMetaArgs(name=ns),
         opts=pulumi.ResourceOptions(provider=k8s_provider)
     )
+
+# ArgoCD Redis secret for authentication
+argocd_redis_secret = k8s.core.v1.Secret("argocd-redis-secret",
+    metadata=k8s.meta.v1.ObjectMetaArgs(
+        name="argocd-redis",
+        namespace="argocd"
+    ),
+    type="Opaque",
+    string_data={
+        "auth": config.get("redis_password") or "defaultredispassword123"
+    },
+    opts=pulumi.ResourceOptions(provider=k8s_provider)
+)
 
 # cert-manager (CRDs installed via helm flag)
 cert_manager_chart = Chart("cert-manager",
@@ -212,11 +265,35 @@ argocd_chart = Chart("argocd",
                 }
             },
             "dex": {"enabled": False},
-            "redis": {"enabled": True},
-            "repoServer": {"replicas": 1}
+            "redis": {
+                "enabled": True,
+                "auth": {
+                    "enabled": True
+                }
+            },
+            "repoServer": {
+                "replicas": 1,
+                "affinity": {
+                    "podAntiAffinity": {
+                        "preferredDuringSchedulingIgnoredDuringExecution": [
+                            {
+                                "weight": 100,
+                                "podAffinityTerm": {
+                                    "labelSelector": {
+                                        "matchLabels": {
+                                            "app.kubernetes.io/name": "argocd-repo-server"
+                                        }
+                                    },
+                                    "topologyKey": "kubernetes.io/hostname"
+                                }
+                            }
+                        ]
+                    }
+                }
+            }
         }
     ),
-    opts=pulumi.ResourceOptions(provider=k8s_provider)
+    opts=pulumi.ResourceOptions(provider=k8s_provider, depends_on=[argocd_redis_secret])
 )
 
 # External DNS with subdomain
@@ -285,34 +362,53 @@ cluster_autoscaler_chart = Chart("cluster-autoscaler",
     opts=pulumi.ResourceOptions(provider=k8s_provider)
 )
 
-# ArgoCD Application to manage infrastructure components (GitOps approach)
+# ArgoCD Application to manage production infrastructure via GitOps
 argocd_bootstrap_app = k8s.apiextensions.CustomResource("argocd-bootstrap",
     api_version="argoproj.io/v1alpha1",
     kind="Application",
     metadata=k8s.meta.v1.ObjectMetaArgs(
         name="infrastructure-bootstrap",
-        namespace="argocd"
+        namespace="argocd",
+        labels={
+            "app": "infrastructure-bootstrap",
+            "environment": "prod"
+        },
+        annotations={
+            "argocd.argoproj.io/sync-options": "Prune=true,Delete=true"
+        }
     ),
     spec={
         "project": "default",
         "source": {
-            "repoURL": "https://github.com/your-org/k8s-manifests",  # Replace with your repo
+            "repoURL": "https://github.com/aiqs4/builder-space-argocd.git",
             "targetRevision": "HEAD",
-            "path": "infrastructure"
+            "path": "environments/prod/infrastructure"
         },
         "destination": {
             "server": "https://kubernetes.default.svc",
-            "namespace": "argocd"
+            "namespace": "default"
         },
         "syncPolicy": {
             "automated": {
                 "prune": True,
-                "selfHeal": True
+                "selfHeal": True,
+                "allowEmpty": False
             },
             "syncOptions": [
-                "CreateNamespace=true"
-            ]
-        }
+                "CreateNamespace=true",
+                "PrunePropagationPolicy=foreground",
+                "PruneLast=true"
+            ],
+            "retry": {
+                "limit": 5,
+                "backoff": {
+                    "duration": "5s",
+                    "factor": 2,
+                    "maxDuration": "3m"
+                }
+            }
+        },
+        "revisionHistoryLimit": 10
     },
     opts=pulumi.ResourceOptions(
         provider=k8s_provider,
@@ -348,9 +444,9 @@ pulumi.export("setup_commands", {
 })
 
 pulumi.export("domain_setup", {
-    "subdomain_zone_id": subdomain_zone_id,
-    "subdomain_nameservers": subdomain_nameservers,
-    "dnssec_ds_record": dnssec_ds_record,
+    # "subdomain_zone_id": subdomain_zone_id,
+    # "subdomain_nameservers": subdomain_nameservers,
+    # "dnssec_ds_record": dnssec_ds_record,
     "note": "Ensure DS record is added at parent; NS delegation already managed in DNS stack"
 })
 
