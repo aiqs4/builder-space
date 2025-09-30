@@ -1,0 +1,121 @@
+# Cert-Manager Helm Values for ArgoCD
+# Copy this file to builder-space-argocd/environments/prod/infrastructure/cert-manager/
+
+# Install CRDs (Custom Resource Definitions)
+installCRDs: true
+
+# Global Configuration
+global:
+  leaderElection:
+    namespace: cert-manager
+
+# Replica Count
+replicaCount: 1
+
+# Image Configuration
+image:
+  repository: quay.io/jetstack/cert-manager-controller
+  pullPolicy: IfNotPresent
+
+# Service Account
+serviceAccount:
+  create: true
+  name: cert-manager
+
+# RBAC
+rbac:
+  create: true
+
+# Resources
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Security Context
+securityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 1000
+
+# Pod Security Context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# Webhook Configuration
+webhook:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+
+# CA Injector Configuration
+cainjector:
+  enabled: true
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 100m
+      memory: 128Mi
+    requests:
+      cpu: 50m
+      memory: 64Mi
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+
+# Prometheus Monitoring
+prometheus:
+  enabled: false
+  # Enable if you have Prometheus Operator installed
+  servicemonitor:
+    enabled: false
+    prometheusInstance: default
+    interval: 60s
+
+# Logging
+logLevel: 2  # 0-6, higher is more verbose
+
+# Feature Gates
+featureGates: ""
+
+# Extra Arguments
+extraArgs:
+  # Default certificate duration
+  - --default-issuer-kind=ClusterIssuer
+  - --default-issuer-name=letsencrypt-production
+
+# Affinity and Node Selection
+affinity:
+  nodeAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+    - weight: 100
+      preference:
+        matchExpressions:
+        - key: node-role.kubernetes.io/control-plane
+          operator: DoesNotExist
+
+# Pod Disruption Budget
+podDisruptionBudget:
+  enabled: false
+  # Enable for high availability
+  # minAvailable: 1
+
+# Priority Class
+priorityClassName: ""
+
+# DNS Configuration
+dns01RecursiveNameservers: ""
+dns01RecursiveNameserversOnly: false
