@@ -1,0 +1,61 @@
+# External-DNS Helm Values for ArgoCD
+# Copy this file to builder-space-argocd/environments/prod/infrastructure/external-dns/
+
+# AWS Provider Configuration
+provider: aws
+
+aws:
+  region: af-south-1  # UPDATE: Your AWS region
+
+# Service Account with IAM Role
+serviceAccount:
+  create: true
+  name: external-dns
+  annotations:
+    # UPDATE: Get this from Pulumi output:
+    # cd builder-space/infra-k8s && pulumi stack output external_dns_role_arn
+    eks.amazonaws.com/role-arn: arn:aws:iam::YOUR_ACCOUNT_ID:role/external-dns-role-XXXXX
+
+# Domain Configuration
+domainFilters:
+  - your-domain.com  # UPDATE: Your domain name
+
+# DNS Record Policy
+policy: sync  # sync: Create and delete records | upsert-only: Only create/update
+
+# TXT Registry (for ownership tracking)
+registry: txt
+txtOwnerId: builder-space  # UPDATE: Your cluster name
+txtPrefix: _external-dns-
+
+# Source Configuration
+sources:
+  - service
+  - ingress
+
+# Resource Configuration
+resources:
+  limits:
+    cpu: 100m
+    memory: 128Mi
+  requests:
+    cpu: 50m
+    memory: 64Mi
+
+# Logging
+logLevel: info
+logFormat: text
+
+# Interval
+interval: 1m
+
+# Security
+securityContext:
+  fsGroup: 65534
+  runAsNonRoot: true
+  runAsUser: 65534
+
+# Pod Security
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65534

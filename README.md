@@ -158,15 +158,72 @@ kubectl get secret argocd-initial-admin-secret -n argocd -o jsonpath='{.data.pas
 
 📖 **See [`infra-k8s/README.md`](infra-k8s/README.md) for detailed ArgoCD setup instructions.**
 
+### 5. Integrate with ArgoCD GitOps Repository
+
+**After ArgoCD is deployed**, integrate with the GitOps repository for managing Kubernetes resources:
+
+```bash
+# See the argocd-transfer/ directory for complete migration guide
+cd argocd-transfer
+cat README.md
+
+# Get IAM role ARNs for ServiceAccounts
+cd ../infra-k8s
+pulumi stack output iam_roles
+```
+
+The `argocd-transfer/` directory contains:
+- Complete migration strategy and workflow
+- Pre-configured manifests for External-DNS, Cluster-Autoscaler, and Cert-Manager
+- Step-by-step transfer guide
+- IAM roles management guide
+
+📖 **See [`argocd-transfer/README.md`](argocd-transfer/README.md) for the complete ArgoCD integration strategy.**
+
 ## 📁 Architecture
 
 ### Modular Structure
 ```
 ├── bootstrap/           # State storage bootstrap (S3 + DynamoDB)
-├── infra-k8s/          # Kubernetes resources (ArgoCD, applications)
+├── infra-k8s/          # Kubernetes resources (ArgoCD bootstrap)
+├── argocd-transfer/    # GitOps migration guide and manifests
 ├── modules/            # Infrastructure modules (VPC, IAM, EKS, addons)
 └── .github/workflows/  # CI/CD pipelines
 ```
+
+### GitOps Architecture
+
+This project supports a hybrid approach:
+- **Pulumi** manages AWS infrastructure (EKS, VPC, IAM, RDS) and ArgoCD installation
+- **ArgoCD** manages Kubernetes resources (applications, add-ons) via Git
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                         builder-space                            │
+│                    (Pulumi - AWS Resources)                      │
+│                                                                  │
+│  ├── bootstrap/     → S3 + DynamoDB state storage               │
+│  ├── cluster.py     → EKS cluster, VPC, RDS                     │
+│  └── infra-k8s/     → ArgoCD installation + IAM roles           │
+│                                                                  │
+└────────────────────────────┬────────────────────────────────────┘
+                             │
+                             │ References
+                             ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    builder-space-argocd                          │
+│                 (GitOps - K8s Resources)                         │
+│                                                                  │
+│  └── environments/prod/infrastructure/                           │
+│      ├── external-dns/      → DNS management                    │
+│      ├── cluster-autoscaler/→ Auto-scaling                      │
+│      ├── cert-manager/      → TLS certificates                  │
+│      └── applications/      → Your apps                         │
+│                                                                  │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+See [`argocd-transfer/README.md`](argocd-transfer/README.md) for the complete integration strategy.
 
 ### Workflows
 - **State Storage Bootstrap** (`.github/workflows/backend-bootstrap.yml`): Creates state storage infrastructure

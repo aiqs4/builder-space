@@ -450,11 +450,18 @@ pulumi.export("domain_setup", {
     "note": "Ensure DS record is added at parent; NS delegation already managed in DNS stack"
 })
 
+# IAM Role ARNs for ArgoCD manifests
+pulumi.export("iam_roles", {
+    "external_dns_role_arn": external_dns_role.arn,
+    "cluster_autoscaler_role_arn": cluster_autoscaler_role.arn,
+})
+
 # GitOps setup instructions
 pulumi.export("gitops_next_steps", [
-    "1. Create a Git repository for your K8s manifests",
-    "2. Add infrastructure components as Helm charts or plain YAML",
-    "3. Update the ArgoCD bootstrap application repoURL",
-    "4. Commit infrastructure configs to Git",
-    "5. ArgoCD will automatically sync and manage your cluster"
+    "1. Get IAM role ARNs: pulumi stack output iam_roles",
+    "2. Update ArgoCD manifests with IAM role ARNs",
+    "3. Push manifests to builder-space-argocd repository",
+    "4. ArgoCD will automatically sync the resources",
+    "5. Verify resources are running in the cluster",
+    "6. Remove Helm charts from Pulumi after successful migration"
 ])
