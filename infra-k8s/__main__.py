@@ -180,58 +180,6 @@ argocd_redis_secret = k8s.core.v1.Secret("argocd-redis-secret",
     opts=pulumi.ResourceOptions(provider=k8s_provider)
 )
 
-# cert-manager (CRDs installed via helm flag)
-cert_manager_chart = Chart("cert-manager",
-    ChartArgs(
-        chart="cert-manager",
-        version="v1.15.3",
-        namespace="cert-manager",
-        repository_opts=k8s.helm.v4.RepositoryOptsArgs(
-            repo="https://charts.jetstack.io"
-        ),
-        values={
-            "installCRDs": True,
-            "prometheus": {"enabled": False}
-        }
-    ),
-    opts=pulumi.ResourceOptions(provider=k8s_provider)
-)
-
-# ClusterIssuers for Let's Encrypt (staging & production)
-letsencrypt_staging = k8s.apiextensions.CustomResource("letsencrypt-staging-issuer",
-    api_version="cert-manager.io/v1",
-    kind="ClusterIssuer",
-    metadata=k8s.meta.v1.ObjectMetaArgs(name="letsencrypt-staging"),
-    spec={
-        "acme": {
-            "email": acme_email,
-            "server": "https://acme-staging-v02.api.letsencrypt.org/directory",
-            "privateKeySecretRef": {"name": "letsencrypt-staging"},
-            "solvers": [
-                {"http01": {"ingress": {"class": "nginx"}}}
-            ]
-        }
-    },
-    opts=pulumi.ResourceOptions(provider=k8s_provider, depends_on=[cert_manager_chart])
-)
-
-letsencrypt_production = k8s.apiextensions.CustomResource("letsencrypt-production-issuer",
-    api_version="cert-manager.io/v1",
-    kind="ClusterIssuer",
-    metadata=k8s.meta.v1.ObjectMetaArgs(name="letsencrypt-production"),
-    spec={
-        "acme": {
-            "email": acme_email,
-            "server": "https://acme-v02.api.letsencrypt.org/directory",
-            "privateKeySecretRef": {"name": "letsencrypt-production"},
-            "solvers": [
-                {"http01": {"ingress": {"class": "nginx"}}}
-            ]
-        }
-    },
-    opts=pulumi.ResourceOptions(provider=k8s_provider, depends_on=[cert_manager_chart])
-)
-
 # ArgoCD with production configuration
 argocd_chart = Chart("argocd",
     ChartArgs(
@@ -294,72 +242,6 @@ argocd_chart = Chart("argocd",
         }
     ),
     opts=pulumi.ResourceOptions(provider=k8s_provider, depends_on=[argocd_redis_secret])
-)
-
-# External DNS with subdomain
-external_dns_chart = Chart("external-dns",
-    ChartArgs(
-        chart="external-dns",
-        version="1.15.0",
-        namespace="external-dns",
-        repository_opts=k8s.helm.v4.RepositoryOptsArgs(
-            repo="https://kubernetes-sigs.github.io/external-dns/"
-        ),
-        values={
-            "provider": "aws",
-            "aws": {"region": aws_region},
-            "serviceAccount": {
-                "create": True,
-                "annotations": {"eks.amazonaws.com/role-arn": external_dns_role.arn}
-            },
-            "domainFilters": [domain_name],
-            "policy": "sync",
-            "registry": "txt",
-            "txtOwnerId": cluster_name,
-            "resources": {
-                "limits": {"cpu": "100m", "memory": "128Mi"},
-                "requests": {"cpu": "50m", "memory": "64Mi"}
-            }
-        }
-    ),
-    opts=pulumi.ResourceOptions(provider=k8s_provider)
-)
-
-# Cluster Autoscaler
-cluster_autoscaler_chart = Chart("cluster-autoscaler",
-    ChartArgs(
-        chart="cluster-autoscaler",
-        version="9.37.0",
-        namespace="kube-system",
-        repository_opts=k8s.helm.v4.RepositoryOptsArgs(
-            repo="https://kubernetes.github.io/autoscaler"
-        ),
-        values={
-            "autoDiscovery": {
-                "clusterName": cluster_name,
-                "enabled": True
-            },
-            "awsRegion": aws_region,
-            "rbac": {"serviceAccount": {
-                "create": True,
-                "name": "cluster-autoscaler",
-                "annotations": {
-                    "eks.amazonaws.com/role-arn": cluster_autoscaler_role.arn
-                }
-            }},
-            "extraArgs": {
-                "scale-down-delay-after-add": "10m",
-                "scale-down-unneeded-time": "10m",
-                "skip-nodes-with-local-storage": False,
-                "skip-nodes-with-system-pods": False
-            },
-            "resources": {
-                "limits": {"cpu": "100m", "memory": "300Mi"},
-                "requests": {"cpu": "100m", "memory": "300Mi"}
-            }
-        }
-    ),
-    opts=pulumi.ResourceOptions(provider=k8s_provider)
 )
 
 # ArgoCD Application to manage production infrastructure via GitOps
