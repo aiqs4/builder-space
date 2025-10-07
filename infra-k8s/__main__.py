@@ -191,6 +191,9 @@ argocd_chart = Chart("argocd",
         ),
         values={
             "server": {
+                # "service": {
+                #     "type": "ClusterIP",  # Change from LoadBalancer
+                # },
                 "service": {
                     "type": "LoadBalancer",
                     "annotations": {
@@ -198,7 +201,20 @@ argocd_chart = Chart("argocd",
                         "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing"
                     }
                 },
-                "extraArgs": ["--insecure"],
+                # "ingress": {
+                #     "enabled": True,
+                #     "ingressClassName": "nginx",  # Assumes nginx-ingress is installed
+                #     "hosts": ["argocd.k8s.lightsphere.space"],
+                #     "tls": [{
+                #         "secretName": "argocd-tls",
+                #         "hosts": ["argocd.k8s.lightsphere.space"]
+                #     }],
+                #     "annotations": {
+                #         "cert-manager.io/cluster-issuer": "letsencrypt-prod",
+                #         "nginx.ingress.kubernetes.io/ssl-redirect": "true"
+                #     }
+                # },
+                "extraArgs": ["--insecure"],  # Remove after TLS is verified
                 "config": {
                     "application.instanceLabelKey": "argocd.argoproj.io/instance",
                     "server.rbac.policy.default": "role:readonly",
@@ -244,15 +260,15 @@ argocd_chart = Chart("argocd",
     opts=pulumi.ResourceOptions(provider=k8s_provider, depends_on=[argocd_redis_secret])
 )
 
-# ArgoCD Application to manage production infrastructure via GitOps
-argocd_bootstrap_app = k8s.apiextensions.CustomResource("argocd-bootstrap",
+# ArgoCD Application to manage infrastructure applications (App-of-Apps pattern)
+argocd_infrastructure_apps = k8s.apiextensions.CustomResource("argocd-infrastructure-apps",
     api_version="argoproj.io/v1alpha1",
     kind="Application",
     metadata=k8s.meta.v1.ObjectMetaArgs(
-        name="infrastructure-bootstrap",
+        name="infrastructure-apps",
         namespace="argocd",
         labels={
-            "app": "infrastructure-bootstrap",
+            "app": "infrastructure-apps",
             "environment": "prod"
         },
         annotations={
@@ -262,13 +278,17 @@ argocd_bootstrap_app = k8s.apiextensions.CustomResource("argocd-bootstrap",
     spec={
         "project": "default",
         "source": {
-            "repoURL": "https://github.com/aiqs4/builder-space-argocd.git",
+            "repoURL": "https://github.com/Amano-Software/builder-space-argocd.git",
             "targetRevision": "HEAD",
-            "path": "environments/prod/infrastructure"
+            "path": "environments/prod/infrastructure",
+            "directory": {
+                "include": "*/application.yaml",
+                "exclude": "README.md"
+            }
         },
         "destination": {
             "server": "https://kubernetes.default.svc",
-            "namespace": "default"
+            "namespace": "argocd"
         },
         "syncPolicy": {
             "automated": {
@@ -296,6 +316,25 @@ argocd_bootstrap_app = k8s.apiextensions.CustomResource("argocd-bootstrap",
         provider=k8s_provider,
         depends_on=[argocd_chart]
     )
+)
+
+# GitHub App Secret for ArgoCD repository access
+github_app_secret = k8s.core.v1.Secret("github-app-creds",
+    metadata=k8s.meta.v1.ObjectMetaArgs(
+        name="github-app-creds",
+        namespace="argocd",
+        labels={
+            "argocd.argoproj.io/secret-type": "repo-creds"
+        }
+    ),
+    string_data={
+        "type": "git",
+        "url": "https://github.com",
+        "githubAppID": config.require("githubAppID"),  # Set in Pulumi config
+        "githubAppInstallationID": config.require("githubInstallationID"),  # Set in Pulumi config
+        "githubAppPrivateKey": config.require_secret("githubAppPrivateKey")  # Set in Pulumi config (sensitive)
+    },
+    opts=pulumi.ResourceOptions(provider=k8s_provider)
 )
 
 # Get ArgoCD server endpoint

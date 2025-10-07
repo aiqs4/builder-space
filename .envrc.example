@@ -1,0 +1,16 @@
+# Example environment variables for local Pulumi operations
+# Copy to .envrc and run `direnv allow` (requires direnv installed)
+
+# ACME email used for Let's Encrypt issuers
+export ACME_EMAIL=info@lightsphere.space
+
+# Helper function (optional) to sync Pulumi config
+# Run: source .envrc then call sync_acme_email
+sync_acme_email() {
+  if [ -z "$ACME_EMAIL" ]; then
+    echo "ACME_EMAIL not set" >&2
+    return 1
+  fi
+  # Replace stack name if different
+  pulumi config set builder-space-k8s:acme_email "$ACME_EMAIL" --stack k8s --cwd infra-k8s
+}
