@@ -71,24 +71,46 @@ else:
 current = aws.get_caller_identity()
 current_region = aws.get_region()
 
+# Ensure OIDC provider has the correct client ID for IRSA
+# Note: EKS creates the OIDC provider automatically, but doesn't add sts.amazonaws.com client ID
+oidc_provider_arn = pulumi.Output.from_input(oidc_issuer).apply(
+    lambda issuer: f"arn:aws:iam::{current.account_id}:oidc-provider/{issuer.replace('https://', '')}"
+)
+
+# Add the required client ID to the existing OIDC provider
+# This is needed for IRSA to work properly
+oidc_client_id = aws.iam.OpenIdConnectProviderClientId("eks-oidc-client-id",
+    open_id_connect_provider_arn=oidc_provider_arn,
+    client_id="sts.amazonaws.com"
+)
+
+# OIDC provider for IRSA (imported from existing resource)
+# This is required for external-dns, cluster-autoscaler, and other AWS integrations
+oidc_provider = aws.iam.OpenIdConnectProvider("eks-oidc-provider",
+    client_id_lists=["sts.amazonaws.com"],
+    thumbprint_lists=["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"],
+    url=pulumi.Output.from_input(oidc_issuer).apply(lambda issuer: issuer.replace('https://', '')),
+    opts=pulumi.ResourceOptions(protect=True)
+)
+
 # Simple k8s provider
 k8s_provider = k8s.Provider("k8s-provider")
 
 # IAM Role for External DNS
 external_dns_role = aws.iam.Role("external-dns-role",
-    assume_role_policy=pulumi.Output.from_input(oidc_issuer).apply(
-        lambda issuer: json.dumps({
+    assume_role_policy=pulumi.Output.all(oidc_provider.arn, oidc_issuer).apply(
+        lambda args: json.dumps({
             "Version": "2012-10-17",
             "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                    "Federated": f"arn:aws:iam::{current.account_id}:oidc-provider/{issuer.replace('https://', '')}"
+                    "Federated": args[0]  # oidc_provider.arn
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
                     "StringEquals": {
-                        f"{issuer.replace('https://', '')}:sub": "system:serviceaccount:external-dns:external-dns",
-                        f"{issuer.replace('https://', '')}:aud": "sts.amazonaws.com"
+                        f"{args[1].replace('https://', '')}:sub": "system:serviceaccount:external-dns:external-dns",
+                        f"{args[1].replace('https://', '')}:aud": "sts.amazonaws.com"
                     }
                 }
             }]
@@ -114,19 +136,19 @@ aws.iam.RolePolicy("external-dns-policy",
 
 # IAM Role for Cluster Autoscaler
 cluster_autoscaler_role = aws.iam.Role("cluster-autoscaler-role",
-    assume_role_policy=pulumi.Output.from_input(oidc_issuer).apply(
-        lambda issuer: json.dumps({
+    assume_role_policy=pulumi.Output.all(oidc_provider.arn, oidc_issuer).apply(
+        lambda args: json.dumps({
             "Version": "2012-10-17",
             "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                    "Federated": f"arn:aws:iam::{current.account_id}:oidc-provider/{issuer.replace('https://', '')}"
+                    "Federated": args[0]  # oidc_provider.arn
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
                     "StringEquals": {
-                        f"{issuer.replace('https://', '')}:sub": "system:serviceaccount:kube-system:cluster-autoscaler",
-                        f"{issuer.replace('https://', '')}:aud": "sts.amazonaws.com"
+                        f"{args[1].replace('https://', '')}:sub": "system:serviceaccount:kube-system:cluster-autoscaler",
+                        f"{args[1].replace('https://', '')}:aud": "sts.amazonaws.com"
                     }
                 }
             }]
@@ -331,7 +353,7 @@ github_app_secret = k8s.core.v1.Secret("github-app-creds",
         "type": "git",
         "url": "https://github.com",
         "githubAppID": config.require("githubAppID"),  # Set in Pulumi config
-        "githubAppInstallationID": config.require("githubInstallationID"),  # Set in Pulumi config
+        "githubAppInstallationID": config.require("githubAppInstallationID"),  # Set in Pulumi config
         "githubAppPrivateKey": config.require_secret("githubAppPrivateKey")  # Set in Pulumi config (sensitive)
     },
     opts=pulumi.ResourceOptions(provider=k8s_provider)
