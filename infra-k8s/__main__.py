@@ -79,32 +79,33 @@ oidc_provider_arn = pulumi.Output.from_input(oidc_issuer).apply(
 
 # Add the required client ID to the existing OIDC provider
 # This is needed for IRSA to work properly
-oidc_client_id = aws.iam.OpenIdConnectProviderClientId("eks-oidc-client-id",
-    open_id_connect_provider_arn=oidc_provider_arn,
-    client_id="sts.amazonaws.com"
-)
+# oidc_client_id = aws.iam.OpenIdConnectProviderClientId("eks-oidc-client-id",
+#     open_id_connect_provider_arn=oidc_provider_arn,
+#     client_id="sts.amazonaws.com"
+# )
 
 # OIDC provider for IRSA (imported from existing resource)
 # This is required for external-dns, cluster-autoscaler, and other AWS integrations
-oidc_provider = aws.iam.OpenIdConnectProvider("eks-oidc-provider",
-    client_id_lists=["sts.amazonaws.com"],
-    thumbprint_lists=["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"],
-    url=pulumi.Output.from_input(oidc_issuer).apply(lambda issuer: issuer.replace('https://', '')),
-    opts=pulumi.ResourceOptions(protect=True)
-)
+# Note: EKS creates this automatically, so we don't need to create it
+# oidc_provider = aws.iam.OpenIdConnectProvider("eks-oidc-provider",
+#     client_id_lists=["sts.amazonaws.com"],
+#     thumbprint_lists=["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"],
+#     url=pulumi.Output.from_input(oidc_issuer).apply(lambda issuer: issuer.replace('https://', '')),
+#     opts=pulumi.ResourceOptions(protect=True)
+# )
 
 # Simple k8s provider
 k8s_provider = k8s.Provider("k8s-provider")
 
 # IAM Role for External DNS
 external_dns_role = aws.iam.Role("external-dns-role",
-    assume_role_policy=pulumi.Output.all(oidc_provider.arn, oidc_issuer).apply(
+    assume_role_policy=pulumi.Output.all(oidc_provider_arn, oidc_issuer).apply(
         lambda args: json.dumps({
             "Version": "2012-10-17",
             "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                    "Federated": args[0]  # oidc_provider.arn
+                    "Federated": args[0]  # oidc_provider_arn
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
@@ -136,13 +137,13 @@ aws.iam.RolePolicy("external-dns-policy",
 
 # IAM Role for Cluster Autoscaler
 cluster_autoscaler_role = aws.iam.Role("cluster-autoscaler-role",
-    assume_role_policy=pulumi.Output.all(oidc_provider.arn, oidc_issuer).apply(
+    assume_role_policy=pulumi.Output.all(oidc_provider_arn, oidc_issuer).apply(
         lambda args: json.dumps({
             "Version": "2012-10-17",
             "Statement": [{
                 "Effect": "Allow",
                 "Principal": {
-                    "Federated": args[0]  # oidc_provider.arn
+                    "Federated": args[0]  # oidc_provider_arn
                 },
                 "Action": "sts:AssumeRoleWithWebIdentity",
                 "Condition": {
@@ -213,16 +214,17 @@ argocd_chart = Chart("argocd",
         ),
         values={
             "server": {
-                # "service": {
-                #     "type": "ClusterIP",  # Change from LoadBalancer
-                # },
                 "service": {
-                    "type": "LoadBalancer",
-                    "annotations": {
-                        "service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
-                        "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing"
-                    }
+                    "type": "ClusterIP",  # Changed from LoadBalancer - using Ingress instead
                 },
+                # Old LoadBalancer config (commented out for reference):
+                # "service": {
+                #     "type": "LoadBalancer",
+                #     "annotations": {
+                #         "service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
+                #         "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing"
+                #     }
+                # },
                 # "ingress": {
                 #     "enabled": True,
                 #     "ingressClassName": "nginx",  # Assumes nginx-ingress is installed

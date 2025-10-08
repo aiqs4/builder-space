@@ -143,7 +143,7 @@ node_group = aws.eks.NodeGroup("nodes",
         max_size=NODE_COUNT + 1,
         min_size=1,
     ),
-    disk_size=20)
+    disk_size=50)  # Increased from 20GB to 50GB
 
 # Spot Node Group
 spot_nodes = aws.eks.NodeGroup("spot-nodes",
@@ -158,7 +158,7 @@ spot_nodes = aws.eks.NodeGroup("spot-nodes",
         min_size=0,
         max_size=3,
     ),
-    disk_size=40)
+    disk_size=80)  # Increased from 40GB to 80GB
 
 # Simple RDS for storage
 db_subnet_group = aws.rds.SubnetGroup("db-subnet-group",
