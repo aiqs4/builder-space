@@ -1,0 +1,6 @@
+name: builder-space-ecr
+description: ECR Container Registry with Pull-Through Cache for cost-effective image management
+runtime:
+  name: python
+  options:
+    toolchain: pip

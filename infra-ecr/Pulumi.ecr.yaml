@@ -1,0 +1,11 @@
+config:
+  aws:region: af-south-1
+  builder-space-ecr:cluster_name: builder-space
+  # Optional: Add Docker Hub credentials for higher rate limits
+  # builder-space-ecr:dockerhub_username: your-username
+  # builder-space-ecr:dockerhub_password: your-token
+
+  builder-space-ecr:dockerhub_username: sdevd
+  builder-space-ecr:dockerhub_password:
+    secure: v1:PWvac6E52pS2FgjP:+Lz+XTzD1nAMki7+sUZVtwOqwAfiNo5LroBSub77RFqvCIbhJ156oADk5d/mbY2dA53UZw==
+encryptionsalt: v1:yO6HRCedCAQ=:v1:STg7mKkz06cwkdkE:M8nYxyWUFuEbipBN8fDll7tWSNtKyQ==

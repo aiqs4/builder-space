@@ -175,12 +175,65 @@ database = aws.rds.Instance("postgres-db",
     skip_final_snapshot=True,
     username="postgres",
     password="changeme123",
+    iam_database_authentication_enabled=True,  # Enable IAM auth
     publicly_accessible=False)
+
+# IAM policy for RDS IAM authentication
+rds_iam_policy = aws.iam.Policy("rds-iam-auth-policy",
+    policy=database.endpoint.apply(lambda endpoint: json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": ["rds-db:connect"],
+            "Resource": [
+                f"arn:aws:rds-db:{region.name}:{current.account_id}:dbuser:*/*"
+            ]
+        }]
+    })))
+
+# Create IAM roles for each application with IRSA
+def create_app_role(app_name, namespace):
+    role = aws.iam.Role(f"{app_name}-rds-role",
+        assume_role_policy=cluster.identity.oidcs[0].issuer.apply(
+            lambda issuer: json.dumps({
+                "Version": "2012-10-17",
+                "Statement": [{
+                    "Effect": "Allow",
+                    "Principal": {
+                        "Federated": f"arn:aws:iam::{current.account_id}:oidc-provider/{issuer.replace('https://', '')}"
+                    },
+                    "Action": "sts:AssumeRoleWithWebIdentity",
+                    "Condition": {
+                        "StringEquals": {
+                            f"{issuer.replace('https://', '')}:sub": f"system:serviceaccount:{namespace}:{app_name}",
+                            f"{issuer.replace('https://', '')}:aud": "sts.amazonaws.com"
+                        }
+                    }
+                }]
+            })
+        ))
+    
+    aws.iam.RolePolicyAttachment(f"{app_name}-rds-policy-attach",
+        role=role.name,
+        policy_arn=rds_iam_policy.arn)
+    
+    return role
+
+# Create roles for each app
+nextcloud_role = create_app_role("nextcloud", "nextcloud")
+erpnext_role = create_app_role("erpnext", "erpnext")
+nocodb_role = create_app_role("nocodb", "nocodb")
 
 # Outputs
 pulumi.export("cluster_name", cluster.name)
 pulumi.export("cluster_endpoint", cluster.endpoint)
 pulumi.export("database_endpoint", database.endpoint)
 pulumi.export("database_name", database.db_name)
+pulumi.export("rds_iam_roles", {
+    "nextcloud": nextcloud_role.arn,
+    "erpnext": erpnext_role.arn,
+    "nocodb": nocodb_role.arn
+})
 pulumi.export("kubeconfig_command", 
 pulumi.Output.concat("aws eks update-kubeconfig --region ", region.name, " --name ", cluster.name))
+

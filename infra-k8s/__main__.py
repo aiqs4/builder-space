@@ -45,6 +45,26 @@ domain_name = config.get("domain_name")
 # Get cluster info
 cluster_info = aws.eks.get_cluster(name=cluster_name)
 
+# Get the hosted zone ID for k8s.lightsphere.space (if domain_name is configured)
+hosted_zone_id = None
+if domain_name:
+    # Look up the hosted zone for the domain
+    hosted_zone = aws.route53.get_zone(name=domain_name, private_zone=False)
+    hosted_zone_id = hosted_zone.zone_id
+    
+    # Create DNS record for cluster API endpoint: api.k8s.lightsphere.space -> EKS endpoint
+    # Extract the hostname from the cluster endpoint (remove https://)
+    cluster_endpoint_hostname = cluster_info.endpoint.replace("https://", "")
+    
+    api_dns_record = aws.route53.Record("cluster-api-dns",
+        zone_id=hosted_zone_id,
+        name=f"api.{domain_name}",
+        type="CNAME",
+        ttl=300,
+        records=[cluster_endpoint_hostname]
+    )
+
+
 # Derive OIDC issuer robustly (EKS describeCluster returns identities[0].oidcs list)
 oidc_issuer_override = config.get("cluster_oidc_issuer")
 
@@ -71,28 +91,28 @@ else:
 current = aws.get_caller_identity()
 current_region = aws.get_region()
 
-# Ensure OIDC provider has the correct client ID for IRSA
-# Note: EKS creates the OIDC provider automatically, but doesn't add sts.amazonaws.com client ID
-oidc_provider_arn = pulumi.Output.from_input(oidc_issuer).apply(
-    lambda issuer: f"arn:aws:iam::{current.account_id}:oidc-provider/{issuer.replace('https://', '')}"
+# ============================================================================
+# OIDC Provider for IRSA (IAM Roles for Service Accounts)
+# ============================================================================
+# IMPORTANT: EKS creates an OIDC issuer URL, but does NOT register it in IAM
+# We must create the IAM OIDC provider to enable IRSA for:
+# - Cluster Autoscaler, External DNS, EBS CSI Driver, etc.
+#
+# Get the OIDC issuer thumbprint from AWS
+# For EKS, the thumbprint is the root CA thumbprint (consistent across regions)
+
+# The URL should be the full OIDC issuer path (including /id/XXXXX)
+# EKS returns: https://oidc.eks.region.amazonaws.com/id/XXXX
+# AWS IAM needs the full path after removing https://
+oidc_provider = aws.iam.OpenIdConnectProvider("eks-oidc-provider",
+    client_id_lists=["sts.amazonaws.com"],
+    thumbprint_lists=["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"],  # AWS EKS root CA thumbprint
+    url=oidc_issuer  # Keep the full https:// URL as AWS expects it
 )
 
-# Add the required client ID to the existing OIDC provider
-# This is needed for IRSA to work properly
-# oidc_client_id = aws.iam.OpenIdConnectProviderClientId("eks-oidc-client-id",
-#     open_id_connect_provider_arn=oidc_provider_arn,
-#     client_id="sts.amazonaws.com"
-# )
-
-# OIDC provider for IRSA (imported from existing resource)
-# This is required for external-dns, cluster-autoscaler, and other AWS integrations
-# Note: EKS creates this automatically, so we don't need to create it
-# oidc_provider = aws.iam.OpenIdConnectProvider("eks-oidc-provider",
-#     client_id_lists=["sts.amazonaws.com"],
-#     thumbprint_lists=["9e99a48a9960b14926bb7f3b02e22da2b0ab7280"],
-#     url=pulumi.Output.from_input(oidc_issuer).apply(lambda issuer: issuer.replace('https://', '')),
-#     opts=pulumi.ResourceOptions(protect=True)
-# )
+# Update the oidc_provider_arn to use the created provider
+oidc_provider_arn = oidc_provider.arn
+# ============================================================================
 
 # Simple k8s provider
 k8s_provider = k8s.Provider("k8s-provider")
@@ -176,6 +196,50 @@ aws.iam.RolePolicy("cluster-autoscaler-policy",
         }]
     })
 )
+
+# ============================================================================
+# EBS CSI Driver - Required for EBS volume provisioning
+# ============================================================================
+
+# IAM Role for EBS CSI Driver
+ebs_csi_role = aws.iam.Role("ebs-csi-driver-role",
+    assume_role_policy=pulumi.Output.all(oidc_provider_arn, oidc_issuer).apply(
+        lambda args: json.dumps({
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": {
+                    "Federated": args[0]  # oidc_provider_arn
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {
+                        f"{args[1].replace('https://', '')}:sub": "system:serviceaccount:kube-system:ebs-csi-controller-sa",
+                        f"{args[1].replace('https://', '')}:aud": "sts.amazonaws.com"
+                    }
+                }
+            }]
+        })
+    )
+)
+
+# Attach AWS managed policy for EBS CSI Driver
+aws.iam.RolePolicyAttachment("ebs-csi-driver-policy",
+    role=ebs_csi_role.name,
+    policy_arn="arn:aws:iam::aws:policy/service-role/AmazonEBSCSIDriverPolicy"
+)
+
+# Install EBS CSI Driver as EKS Addon
+ebs_csi_addon = aws.eks.Addon("ebs-csi-driver",
+    cluster_name=cluster_name,
+    addon_name="aws-ebs-csi-driver",
+    addon_version="v1.37.0-eksbuild.1",  # Latest version for EKS 1.33
+    service_account_role_arn=ebs_csi_role.arn,
+    resolve_conflicts_on_create="OVERWRITE",
+    resolve_conflicts_on_update="OVERWRITE"
+)
+
+# ============================================================================
 
 # Namespaces
 namespaces = {
@@ -371,11 +435,12 @@ argocd_server_service = k8s.core.v1.Service.get("argocd-server-svc",
 pulumi.export("cluster_name", cluster_name)
 pulumi.export("aws_region", aws_region)
 
-pulumi.export("argocd_endpoint", 
-    argocd_server_service.status.load_balancer.ingress[0].hostname.apply(
-        lambda hostname: f"http://{hostname}" if hostname else "Provisioning..."
-    )
-)
+# ArgoCD is now ClusterIP with Ingress - export the ingress URL instead
+if domain_name:
+    pulumi.export("argocd_endpoint", f"https://argocd.{domain_name}")
+else:
+    pulumi.export("argocd_endpoint", "Use port-forward: kubectl port-forward svc/argocd-server -n argocd 8080:80")
+
 
 pulumi.export("setup_commands", {
     "kubeconfig": f"aws eks update-kubeconfig --region {aws_region} --name {cluster_name}",
@@ -399,6 +464,7 @@ pulumi.export("domain_setup", {
 pulumi.export("iam_roles", {
     "external_dns_role_arn": external_dns_role.arn,
     "cluster_autoscaler_role_arn": cluster_autoscaler_role.arn,
+    "ebs_csi_driver_role_arn": ebs_csi_role.arn,
 })
 
 # GitOps setup instructions

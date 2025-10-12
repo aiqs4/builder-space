@@ -84,7 +84,7 @@ if enable_dnssec:
 # Delegate subdomain
 aws.route53.Record("subdomain-delegation",
     zone_id=parent_zone_id,
-    name=f"eks.{domain}",
+    name=f"k8s.{domain}",
     type="NS",
     ttl=300,
     records=sub_zone.name_servers
