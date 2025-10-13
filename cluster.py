@@ -176,6 +176,7 @@ database = aws.rds.Instance("postgres-db",
     username="postgres",
     password="changeme123",
     iam_database_authentication_enabled=True,  # Enable IAM auth
+    apply_immediately=True,
     publicly_accessible=False)
 
 # IAM policy for RDS IAM authentication
@@ -194,7 +195,7 @@ rds_iam_policy = aws.iam.Policy("rds-iam-auth-policy",
 # Create IAM roles for each application with IRSA
 def create_app_role(app_name, namespace):
     role = aws.iam.Role(f"{app_name}-rds-role",
-        assume_role_policy=cluster.identity.oidcs[0].issuer.apply(
+        assume_role_policy=cluster.identities[0].oidcs[0].issuer.apply(
             lambda issuer: json.dumps({
                 "Version": "2012-10-17",
                 "Statement": [{
@@ -224,9 +225,58 @@ nextcloud_role = create_app_role("nextcloud", "nextcloud")
 erpnext_role = create_app_role("erpnext", "erpnext")
 nocodb_role = create_app_role("nocodb", "nocodb")
 
+# EFS CSI Driver IAM Role for dynamic provisioning
+efs_csi_role = aws.iam.Role("efs-csi-controller-role",
+    assume_role_policy=cluster.identities[0].oidcs[0].issuer.apply(
+        lambda issuer: json.dumps({
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": {
+                    "Federated": f"arn:aws:iam::{current.account_id}:oidc-provider/{issuer.replace('https://', '')}"
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {
+                        f"{issuer.replace('https://', '')}:sub": "system:serviceaccount:kube-system:efs-csi-controller-sa",
+                        f"{issuer.replace('https://', '')}:aud": "sts.amazonaws.com"
+                    }
+                }
+            }]
+        })))
+
+efs_csi_policy = aws.iam.Policy("efs-csi-policy",
+    policy=json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "elasticfilesystem:DescribeAccessPoints",
+                "elasticfilesystem:DescribeFileSystems",
+                "elasticfilesystem:DescribeMountTargets",
+                "elasticfilesystem:CreateAccessPoint",
+                "elasticfilesystem:DeleteAccessPoint",
+                "elasticfilesystem:TagResource"
+            ],
+            "Resource": "*"
+        }, {
+            "Effect": "Allow",
+            "Action": [
+                "ec2:DescribeAvailabilityZones"
+            ],
+            "Resource": "*"
+        }]
+    }))
+
+aws.iam.RolePolicyAttachment("efs-csi-policy-attach",
+    role=efs_csi_role.name,
+    policy_arn=efs_csi_policy.arn)
+
 # Outputs
 pulumi.export("cluster_name", cluster.name)
 pulumi.export("cluster_endpoint", cluster.endpoint)
+pulumi.export("vpc_id", vpc.id)
+pulumi.export("subnet_ids", [subnet1.id, subnet2.id])
 pulumi.export("database_endpoint", database.endpoint)
 pulumi.export("database_name", database.db_name)
 pulumi.export("rds_iam_roles", {
@@ -234,6 +284,7 @@ pulumi.export("rds_iam_roles", {
     "erpnext": erpnext_role.arn,
     "nocodb": nocodb_role.arn
 })
+pulumi.export("efs_csi_role_arn", efs_csi_role.arn)
 pulumi.export("kubeconfig_command", 
 pulumi.Output.concat("aws eks update-kubeconfig --region ", region.name, " --name ", cluster.name))
 
