@@ -1,0 +1,30 @@
+name: infra-email
+runtime: python
+description: AWS WorkMail and SES Email Infrastructure
+
+config:
+  workmail_org_id:
+    type: string
+    default: m-6e08a2a35de44418ac00d3daa51bf5f2
+    description: WorkMail Organization ID
+  
+  workmail_alias:
+    type: string
+    default: tekanya
+    description: WorkMail organization alias
+  
+  domains:
+    type: array
+    items:
+      type: string
+    default:
+      - amano.services
+      - tekanya.services
+      - lightsphere.space
+      - sosolola.cloud
+    description: List of domains to configure for email
+  
+  primary_domain:
+    type: string
+    default: sosolola.cloud
+    description: Primary domain for WorkMail default configuration

@@ -1,0 +1,11 @@
+config:
+  aws:region: us-east-1
+  infra-email:workmail_org_id: m-6e08a2a35de44418ac00d3daa51bf5f2
+  infra-email:workmail_alias: tekanya
+  infra-email:primary_domain: sosolola.cloud
+  infra-email:domains:
+    - amano.services
+    - tekanya.services
+    - lightsphere.space
+    - sosolola.cloud
+encryptionsalt: v1:dab6XmuAZrE=:v1:r1EzV1dH2ezb+LLp:WKxv/EgACxguIFp6rTLuiVdduriVCA==
