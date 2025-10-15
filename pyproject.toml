@@ -1,0 +1,43 @@
+[tool.poetry]
+name = "builder-space"
+version = "0.1.0"
+description = "Infrastructure as Code with Pulumi - Multi-stack Kubernetes and Auth0 setup"
+authors = ["Sascha Dewald <sascha.dewald@gmail.com>"]
+readme = "README.md"
+packages = [{include = "src"}]
+
+[tool.poetry.dependencies]
+python = "^3.11"
+# Core Pulumi
+pulumi = "^3.130.0"
+# AWS Provider - using latest compatible version
+pulumi-aws = "^7.0.0"
+# Kubernetes Provider
+pulumi-kubernetes = "^4.18.0"
+# Auth0 Provider
+pulumi-auth0 = "^3.0.0"
+
+[tool.poetry.group.dev.dependencies]
+# Development tools (add as needed)
+black = "^23.0.0"
+flake8 = "^6.0.0"
+mypy = "^1.0.0"
+
+[tool.poetry.scripts]
+# Infrastructure deployment scripts
+setup-auth0 = "scripts.setup_auth0:main"
+deploy-eks = "scripts.deploy_eks:main"
+setup-k8s = "scripts.setup_k8s:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true

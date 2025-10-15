@@ -1,0 +1,17 @@
+name: infra-auth0
+runtime: python
+description: Auth0 configuration for OAuth2 Proxy integration with Google authentication
+
+config:
+  aws:region:
+    value: af-south-1
+  domain_name:
+    type: string
+    default: k8s.lightsphere.space
+  auth_subdomain:
+    type: string
+    default: auth
+  admin_email:
+    type: string
+    default: sascha.dewald@gmail.com
+    description: Admin email for Auth0 configuration

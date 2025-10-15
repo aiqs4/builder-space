@@ -241,6 +241,52 @@ ebs_csi_addon = aws.eks.Addon("ebs-csi-driver",
 
 # ============================================================================
 
+# ============================================================================
+# External Secrets Operator - IAM Role for AWS Secrets Manager integration
+# ============================================================================
+
+# IAM Role for External Secrets Operator
+external_secrets_role = aws.iam.Role("external-secrets-operator-role",
+    assume_role_policy=pulumi.Output.all(oidc_provider_arn, oidc_issuer).apply(
+        lambda args: json.dumps({
+            "Version": "2012-10-17",
+            "Statement": [{
+                "Effect": "Allow",
+                "Principal": {
+                    "Federated": args[0]  # oidc_provider_arn
+                },
+                "Action": "sts:AssumeRoleWithWebIdentity",
+                "Condition": {
+                    "StringEquals": {
+                        f"{args[1].replace('https://', '')}:sub": "system:serviceaccount:external-secrets:external-secrets",
+                        f"{args[1].replace('https://', '')}:aud": "sts.amazonaws.com"
+                    }
+                }
+            }]
+        })
+    )
+)
+
+# IAM Policy for External Secrets Operator to access Secrets Manager
+external_secrets_policy = aws.iam.RolePolicy("external-secrets-policy",
+    role=external_secrets_role.id,
+    policy=json.dumps({
+        "Version": "2012-10-17",
+        "Statement": [{
+            "Effect": "Allow",
+            "Action": [
+                "secretsmanager:GetSecretValue",
+                "secretsmanager:DescribeSecret"
+            ],
+            "Resource": [
+                f"arn:aws:secretsmanager:{aws_region}:{current.account_id}:secret:oauth2-proxy-auth0-*"
+            ]
+        }]
+    })
+)
+
+# ============================================================================
+
 # Namespaces
 namespaces = {
     "argocd": "argocd",
@@ -453,6 +499,63 @@ pulumi.export("setup_commands", {
     ]
 })
 
+# ============================================================================
+# OAuth2 Proxy Secret for Auth0 Authentication
+# ============================================================================
+# Create namespace for oauth2-proxy
+oauth2_proxy_namespace = k8s.core.v1.Namespace("oauth2-proxy",
+    metadata=k8s.meta.v1.ObjectMetaArgs(
+        name="oauth2-proxy",
+        labels={
+            "name": "oauth2-proxy",
+            "managed-by": "pulumi",
+        },
+    ),
+    opts=pulumi.ResourceOptions(provider=k8s_provider)
+)
+
+# Generate a random cookie secret (32 bytes)
+import random as py_random
+import string
+import base64
+
+def generate_cookie_secret(_):
+    # Generate 32 random bytes and base64 encode
+    random_bytes = ''.join(py_random.choices(string.ascii_letters + string.digits + string.punctuation, k=32))
+    return base64.b64encode(random_bytes.encode()).decode()
+
+cookie_secret = pulumi.Output.from_input("generate").apply(generate_cookie_secret)
+
+# Create Kubernetes secret for OAuth2 Proxy
+# Secrets are pulled from Pulumi config (encrypted with AWS KMS)
+oauth2_proxy_secret = k8s.core.v1.Secret("oauth2-proxy-secret",
+    metadata=k8s.meta.v1.ObjectMetaArgs(
+        name="oauth2-proxy",
+        namespace=oauth2_proxy_namespace.metadata.name,
+        labels={
+            "app": "oauth2-proxy",
+            "managed-by": "pulumi",
+        },
+    ),
+    type="Opaque",
+    string_data={
+        "client-id": config.require_secret("auth0_client_id"),
+        "client-secret": config.require_secret("auth0_client_secret"),
+        "cookie-secret": cookie_secret,
+    },
+    opts=pulumi.ResourceOptions(
+        provider=k8s_provider,
+        depends_on=[oauth2_proxy_namespace]
+    )
+)
+
+pulumi.export("oauth2_proxy_setup", {
+    "namespace": oauth2_proxy_namespace.metadata.name,
+    "secret_name": oauth2_proxy_secret.metadata.name,
+    "note": "Configure secrets with: pulumi config set --secret auth0_client_id YOUR_ID && pulumi config set --secret auth0_client_secret YOUR_SECRET"
+})
+# ============================================================================
+
 pulumi.export("domain_setup", {
     # "subdomain_zone_id": subdomain_zone_id,
     # "subdomain_nameservers": subdomain_nameservers,
@@ -460,19 +563,31 @@ pulumi.export("domain_setup", {
     "note": "Ensure DS record is added at parent; NS delegation already managed in DNS stack"
 })
 
+pulumi.export("domain_requirements", {
+    "oauth2_proxy": "auth.k8s.lightsphere.space",
+    "note": "Let's Encrypt certificate will be auto-issued by cert-manager for all *.k8s.lightsphere.space domains",
+    "cert_issuer": "letsencrypt-production (configured in ArgoCD)",
+    "dns_validation": "External-DNS automatically creates DNS records for ingresses"
+})
+
 # IAM Role ARNs for ArgoCD manifests
 pulumi.export("iam_roles", {
     "external_dns_role_arn": external_dns_role.arn,
     "cluster_autoscaler_role_arn": cluster_autoscaler_role.arn,
     "ebs_csi_driver_role_arn": ebs_csi_role.arn,
+    "external_secrets_operator_role_arn": external_secrets_role.arn,
+    "oauth2_proxy_note": "OAuth2 Proxy uses node IAM role for ECR access (no dedicated role needed)",
 })
 
 # GitOps setup instructions
 pulumi.export("gitops_next_steps", [
     "1. Get IAM role ARNs: pulumi stack output iam_roles",
     "2. Update ArgoCD manifests with IAM role ARNs",
-    "3. Push manifests to builder-space-argocd repository",
-    "4. ArgoCD will automatically sync the resources",
-    "5. Verify resources are running in the cluster",
-    "6. Remove Helm charts from Pulumi after successful migration"
+    "3. Configure OAuth2 Proxy Auth0 credentials:",
+    "   pulumi config set --secret auth0_client_id YOUR_CLIENT_ID",
+    "   pulumi config set --secret auth0_client_secret YOUR_CLIENT_SECRET",
+    "4. Push manifests to builder-space-argocd repository",
+    "5. ArgoCD will automatically sync the resources",
+    "6. Verify resources are running in the cluster",
+    "7. OAuth2 Proxy will be available at: https://auth.k8s.lightsphere.space"
 ])

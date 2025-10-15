@@ -1,0 +1,8 @@
+encryptionsalt: v1:WZSYdc5nkhg=:v1:dCJ7bu6MmcagD3A+:O7hBFrlLqT50+mRcxp8pXaaZPoYaRg==
+config:
+  auth0:domain: tekanya.eu.auth0.com
+  auth0:clientId:
+    secure: v1:CmwqmsSsRa6PS3e0:FJxk5aUDh4O4oV5m1i9GULPJTCIH1E9wSMy8sAGxqvg3p1/cpUGRcxkvMlaj7vPk
+  auth0:clientSecret:
+    secure: v1:YZN9lQc3hqOj3Y3L:A1lN7Cbwhk35gtcrvcskgG0nQlpgHJ1hVdvErg7h2rDGNZCgduk2hQ82aVET9gLT9kEJ5OH264tcb4uxlO8cdnq/z5FM0depCZ7OxvAoPoA=
+  infra-auth0:admin_email: sascha.dewald@gmail.com
