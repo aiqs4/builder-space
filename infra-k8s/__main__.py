@@ -325,30 +325,23 @@ argocd_chart = Chart("argocd",
         values={
             "server": {
                 "service": {
-                    "type": "ClusterIP",  # Changed from LoadBalancer - using Ingress instead
+                    "type": "ClusterIP",  # Using Ingress instead of LoadBalancer to reduce ELB count
                 },
-                # Old LoadBalancer config (commented out for reference):
-                # "service": {
-                #     "type": "LoadBalancer",
-                #     "annotations": {
-                #         "service.beta.kubernetes.io/aws-load-balancer-type": "nlb",
-                #         "service.beta.kubernetes.io/aws-load-balancer-scheme": "internet-facing"
-                #     }
-                # },
-                # "ingress": {
-                #     "enabled": True,
-                #     "ingressClassName": "nginx",  # Assumes nginx-ingress is installed
-                #     "hosts": ["argocd.k8s.lightsphere.space"],
-                #     "tls": [{
-                #         "secretName": "argocd-tls",
-                #         "hosts": ["argocd.k8s.lightsphere.space"]
-                #     }],
-                #     "annotations": {
-                #         "cert-manager.io/cluster-issuer": "letsencrypt-production",
-                #         "nginx.ingress.kubernetes.io/ssl-redirect": "true"
-                #     }
-                # },
-                "extraArgs": ["--insecure"],  # Remove after TLS is verified
+                "ingress": {
+                    "enabled": True if domain_name else False,
+                    "ingressClassName": "nginx",
+                    "hosts": [f"argocd.{domain_name}"] if domain_name else [],
+                    "tls": [{
+                        "secretName": "argocd-tls",
+                        "hosts": [f"argocd.{domain_name}"]
+                    }] if domain_name else [],
+                    "annotations": {
+                        "cert-manager.io/cluster-issuer": "letsencrypt-production",
+                        "nginx.ingress.kubernetes.io/ssl-redirect": "true",
+                        "nginx.ingress.kubernetes.io/backend-protocol": "HTTP"
+                    }
+                },
+                "extraArgs": ["--insecure"],  # Allows HTTP backend while ingress handles TLS
                 "config": {
                     "application.instanceLabelKey": "argocd.argoproj.io/instance",
                     "server.rbac.policy.default": "role:readonly",
@@ -500,7 +493,7 @@ pulumi.export("setup_commands", {
 })
 
 # ============================================================================
-# OAuth2 Proxy Secret for Auth0 Authentication
+# OAuth2 Proxy Secret for Auth0 Authentication (AWS Secrets Manager)
 # ============================================================================
 # Create namespace for oauth2-proxy
 oauth2_proxy_namespace = k8s.core.v1.Namespace("oauth2-proxy",
@@ -526,32 +519,36 @@ def generate_cookie_secret(_):
 
 cookie_secret = pulumi.Output.from_input("generate").apply(generate_cookie_secret)
 
-# Create Kubernetes secret for OAuth2 Proxy
-# Secrets are pulled from Pulumi config (encrypted with AWS KMS)
-oauth2_proxy_secret = k8s.core.v1.Secret("oauth2-proxy-secret",
-    metadata=k8s.meta.v1.ObjectMetaArgs(
-        name="oauth2-proxy",
-        namespace=oauth2_proxy_namespace.metadata.name,
-        labels={
-            "app": "oauth2-proxy",
-            "managed-by": "pulumi",
-        },
-    ),
-    type="Opaque",
-    string_data={
-        "client-id": config.require_secret("auth0_client_id"),
-        "client-secret": config.require_secret("auth0_client_secret"),
-        "cookie-secret": cookie_secret,
-    },
-    opts=pulumi.ResourceOptions(
-        provider=k8s_provider,
-        depends_on=[oauth2_proxy_namespace]
-    )
+# Create AWS Secrets Manager secret for OAuth2 Proxy
+# This will be synced to Kubernetes by External Secrets Operator
+oauth2_proxy_aws_secret = aws.secretsmanager.Secret("oauth2-proxy-auth0",
+    name="oauth2-proxy-auth0",
+    description="OAuth2 Proxy Auth0 credentials (client-id, client-secret, cookie-secret)",
+    tags={
+        "ManagedBy": "Pulumi",
+        "Application": "oauth2-proxy",
+        "Environment": "prod"
+    }
+)
+
+# Store the secret values in AWS Secrets Manager
+oauth2_proxy_secret_version = aws.secretsmanager.SecretVersion("oauth2-proxy-auth0-version",
+    secret_id=oauth2_proxy_aws_secret.id,
+    secret_string=pulumi.Output.all(
+        config.require_secret("auth0_client_id"),
+        config.require_secret("auth0_client_secret"),
+        cookie_secret
+    ).apply(lambda args: json.dumps({
+        "client-id": args[0],
+        "client-secret": args[1],
+        "cookie-secret": args[2]
+    }))
 )
 
 pulumi.export("oauth2_proxy_setup", {
     "namespace": oauth2_proxy_namespace.metadata.name,
-    "secret_name": oauth2_proxy_secret.metadata.name,
+    "aws_secret_arn": oauth2_proxy_aws_secret.arn,
+    "aws_secret_name": oauth2_proxy_aws_secret.name,
     "note": "Configure secrets with: pulumi config set --secret auth0_client_id YOUR_ID && pulumi config set --secret auth0_client_secret YOUR_SECRET"
 })
 # ============================================================================
