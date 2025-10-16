@@ -1,5 +1,6 @@
 config:
   aws:region: us-east-1
+  infra-email:identity_store_id: d-906627e820
   infra-email:workmail_org_id: m-6e08a2a35de44418ac00d3daa51bf5f2
   infra-email:workmail_alias: tekanya
   infra-email:primary_domain: sosolola.cloud
