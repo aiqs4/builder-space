@@ -344,7 +344,7 @@ argocd_chart = Chart("argocd",
                 #         "hosts": ["argocd.k8s.lightsphere.space"]
                 #     }],
                 #     "annotations": {
-                #         "cert-manager.io/cluster-issuer": "letsencrypt-prod",
+                #         "cert-manager.io/cluster-issuer": "letsencrypt-production",
                 #         "nginx.ingress.kubernetes.io/ssl-redirect": "true"
                 #     }
                 # },
