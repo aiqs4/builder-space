@@ -325,22 +325,9 @@ argocd_chart = Chart("argocd",
         values={
             "server": {
                 "service": {
-                    "type": "ClusterIP",  # Using Ingress instead of LoadBalancer to reduce ELB count
+                    "type": "ClusterIP",  # Changed from LoadBalancer - using Ingress instead
                 },
-                "ingress": {
-                    "enabled": True if domain_name else False,
-                    "ingressClassName": "nginx",
-                    "hosts": [f"argocd.{domain_name}"] if domain_name else [],
-                    "tls": [{
-                        "secretName": "argocd-tls",
-                        "hosts": [f"argocd.{domain_name}"]
-                    }] if domain_name else [],
-                    "annotations": {
-                        "cert-manager.io/cluster-issuer": "letsencrypt-production",
-                        "nginx.ingress.kubernetes.io/ssl-redirect": "true",
-                        "nginx.ingress.kubernetes.io/backend-protocol": "HTTP"
-                    }
-                },
+                # Remove ingress from Pulumi - let ArgoCD manage it via GitOps
                 "extraArgs": ["--insecure"],  # Allows HTTP backend while ingress handles TLS
                 "config": {
                     "application.instanceLabelKey": "argocd.argoproj.io/instance",
@@ -441,7 +428,13 @@ argocd_infrastructure_apps = k8s.apiextensions.CustomResource("argocd-infrastruc
     },
     opts=pulumi.ResourceOptions(
         provider=k8s_provider,
-        depends_on=[argocd_chart]
+        depends_on=[argocd_chart],
+        custom_timeouts=pulumi.CustomTimeouts(
+            create="5m",
+            update="5m"
+        ),
+        # Handle conflicts with ArgoCD controller
+        ignore_changes=["spec.project"]  # Let ArgoCD manage the project field
     )
 )
 
@@ -474,11 +467,8 @@ argocd_server_service = k8s.core.v1.Service.get("argocd-server-svc",
 pulumi.export("cluster_name", cluster_name)
 pulumi.export("aws_region", aws_region)
 
-# ArgoCD is now ClusterIP with Ingress - export the ingress URL instead
-if domain_name:
-    pulumi.export("argocd_endpoint", f"https://argocd.{domain_name}")
-else:
-    pulumi.export("argocd_endpoint", "Use port-forward: kubectl port-forward svc/argocd-server -n argocd 8080:80")
+# ArgoCD is now ClusterIP - access via port-forward initially, then via ingress after ArgoCD syncs
+pulumi.export("argocd_endpoint", "Port-forward: kubectl port-forward svc/argocd-server -n argocd 8080:80 (ingress will be available after ArgoCD syncs)")
 
 
 pulumi.export("setup_commands", {
@@ -519,19 +509,22 @@ def generate_cookie_secret(_):
 
 cookie_secret = pulumi.Output.from_input("generate").apply(generate_cookie_secret)
 
-# Create AWS Secrets Manager secret for OAuth2 Proxy
-# This will be synced to Kubernetes by External Secrets Operator
-oauth2_proxy_aws_secret = aws.secretsmanager.Secret("oauth2-proxy-auth0",
-    name="oauth2-proxy-auth0",
-    description="OAuth2 Proxy Auth0 credentials (client-id, client-secret, cookie-secret)",
-    tags={
-        "ManagedBy": "Pulumi",
-        "Application": "oauth2-proxy",
-        "Environment": "prod"
-    }
-)
+# # Create AWS Secrets Manager secret for OAuth2 Proxy
+# # This will be synced to Kubernetes by External Secrets Operator
+# oauth2_proxy_aws_secret = aws.secretsmanager.Secret("oauth2-proxy-auth0",
+#     name="oauth2-proxy-auth0",
+#     description="OAuth2 Proxy Auth0 credentials (client-id, client-secret, cookie-secret)",
+#     tags={
+#         "ManagedBy": "Pulumi",
+#         "Application": "oauth2-proxy",
+#         "Environment": "prod"
+#     }
+# )
 
-# Store the secret values in AWS Secrets Manager
+# Reference existing AWS Secrets Manager secret (created by previous run or manually)
+oauth2_proxy_aws_secret = aws.secretsmanager.get_secret(name="oauth2-proxy-auth0")
+
+# Update the secret value in AWS Secrets Manager
 oauth2_proxy_secret_version = aws.secretsmanager.SecretVersion("oauth2-proxy-auth0-version",
     secret_id=oauth2_proxy_aws_secret.id,
     secret_string=pulumi.Output.all(
