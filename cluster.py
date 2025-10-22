@@ -9,8 +9,8 @@ import json
 
 # Configuration - keep it simple
 CLUSTER_NAME = "builder-space"
-NODE_COUNT = 5
-INSTANCE_TYPE = "t4g.medium"
+NODE_COUNT = 3  # Reduced count but using larger instances
+INSTANCE_TYPE = "t4g.xlarge"  # Changed from t4g.medium (17 pods) to t4g.xlarge (58 pods)
 
 # Get current region and account
 current = aws.get_caller_identity()
@@ -143,9 +143,9 @@ node_group = aws.eks.NodeGroup("nodes",
         max_size=NODE_COUNT + 1,
         min_size=1,
     ),
-    disk_size=50)  # Increased from 20GB to 50GB
+    disk_size=80)  # Increased from 50GB to 80GB for more local storage
 
-# Spot Node Group
+# Spot Node Group - Increased capacity for more workloads
 spot_nodes = aws.eks.NodeGroup("spot-nodes",
     cluster_name=cluster.name,
     node_role_arn=node_role.arn,
@@ -154,11 +154,11 @@ spot_nodes = aws.eks.NodeGroup("spot-nodes",
     ami_type="AL2023_ARM_64_STANDARD",
     capacity_type="SPOT",
     scaling_config=aws.eks.NodeGroupScalingConfigArgs(
-        desired_size=2,
-        min_size=0,
-        max_size=3,
+        desired_size=5,  # Increased from 3 to 5
+        min_size=3,      # Increased from 2 to 3 - more guaranteed capacity
+        max_size=10,     # Increased from 6 to 10 - allow more scaling
     ),
-    disk_size=80)  # Increased from 40GB to 80GB
+    disk_size=100)  # Increased from 80GB to 100GB for spot instances
 
 # Simple RDS for storage
 db_subnet_group = aws.rds.SubnetGroup("db-subnet-group",
