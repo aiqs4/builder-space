@@ -1,0 +1,6 @@
+name: builder-space-aurora
+description: Aurora PostgreSQL Serverless v2 Database Stack
+runtime:
+  name: python
+  options:
+    toolchain: pip

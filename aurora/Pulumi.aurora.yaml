@@ -1,0 +1,5 @@
+encryptionsalt: v1:kR/+R7S1H/o=:v1:Xt3cKkVEWEMvHq7j:zoKfO9/klafVdZeEGzqCb2be/F+g8Q==
+config:
+  aws:region: af-south-1
+  builder-space-eks:db_password:
+    secure: v1:GJMP7tM9jcaS+tik:W75TG3/dH2TE9syr89kmoHQXt8FvNluI0H1yYguyHhggjQuVlQUWsSAyuaqwiJJsIck30cReefcPp6gjLl7k2b4=
