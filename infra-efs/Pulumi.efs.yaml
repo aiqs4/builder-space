@@ -1,4 +1,0 @@
-config:
-  aws:region: af-south-1
-  builder-space-efs:cluster_name: builder-space
-encryptionsalt: v1:yO6HRCedCAQ=:v1:STg7mKkz06cwkdkE:M8nYxyWUFuEbipBN8fDll7tWSNtKyQ==

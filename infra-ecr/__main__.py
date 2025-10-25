@@ -176,20 +176,20 @@ ecr_push_policy = aws.iam.Policy("ecr-push-policy",
 # Uncomment if you want cross-region replication for high availability
 # This adds cost: $0.02/GB replicated + storage in destination region
 
-# replication_config = aws.ecr.ReplicationConfiguration("ecr-replication",
-#     replication_configuration=aws.ecr.ReplicationConfigurationReplicationConfigurationArgs(
-#         rules=[
-#             aws.ecr.ReplicationConfigurationReplicationConfigurationRuleArgs(
-#                 destinations=[
-#                     aws.ecr.ReplicationConfigurationReplicationConfigurationRuleDestinationArgs(
-#                         region="eu-west-1",
-#                         registry_id=account_id
-#                     )
-#                 ]
-#             )
-#         ]
-#     )
-# )
+replication_config = aws.ecr.ReplicationConfiguration("ecr-replication",
+    replication_configuration=aws.ecr.ReplicationConfigurationReplicationConfigurationArgs(
+        rules=[
+            aws.ecr.ReplicationConfigurationReplicationConfigurationRuleArgs(
+                destinations=[
+                    aws.ecr.ReplicationConfigurationReplicationConfigurationRuleDestinationArgs(
+                        region="eu-west-1",
+                        registry_id=account_id
+                    )
+                ]
+            )
+        ]
+    )
+)
 
 # =============================================================================
 # OUTPUTS

@@ -9,7 +9,7 @@ import json
 
 # Configuration - keep it simple
 CLUSTER_NAME = "builder-space"
-NODE_COUNT = 3  # Reduced count but using larger instances
+NODE_COUNT = 2  # Reduced to avoid spot quota limits
 INSTANCE_TYPE = "t4g.xlarge"  # Changed from t4g.medium (17 pods) to t4g.xlarge (58 pods)
 
 # Get current region and account
@@ -49,7 +49,7 @@ route_table = aws.ec2.RouteTable("route-table",
         gateway_id=igw.id)])
 
 # Associate subnets with route table
-aws.ec2.RouteTableAssociation("subnet1-rt", 
+aws.ec2.RouteTableAssociation("subnet1-rt",
     subnet_id=subnet1.id, route_table_id=route_table.id)
 aws.ec2.RouteTableAssociation("subnet2-rt",
     subnet_id=subnet2.id, route_table_id=route_table.id)
@@ -145,7 +145,7 @@ node_group = aws.eks.NodeGroup("nodes",
     ),
     disk_size=80)  # Increased from 50GB to 80GB for more local storage
 
-# Spot Node Group - Increased capacity for more workloads
+# Spot Node Group
 spot_nodes = aws.eks.NodeGroup("spot-nodes",
     cluster_name=cluster.name,
     node_role_arn=node_role.arn,
@@ -154,11 +154,11 @@ spot_nodes = aws.eks.NodeGroup("spot-nodes",
     ami_type="AL2023_ARM_64_STANDARD",
     capacity_type="SPOT",
     scaling_config=aws.eks.NodeGroupScalingConfigArgs(
-        desired_size=5,  # Increased from 3 to 5
-        min_size=3,      # Increased from 2 to 3 - more guaranteed capacity
-        max_size=10,     # Increased from 6 to 10 - allow more scaling
+        desired_size=6,  # 6 instances = 24 vCPUs (leaving headroom under 32 vCPU quota)
+        min_size=3,      # Min 3 instances = 12 vCPUs
+        max_size=8,      # Max 8 instances = 32 vCPUs (full quota)
     ),
-    disk_size=100)  # Increased from 80GB to 100GB for spot instances
+    disk_size=100)  # 100GB disk for spot instances
 
 # Simple RDS for storage
 db_subnet_group = aws.rds.SubnetGroup("db-subnet-group",

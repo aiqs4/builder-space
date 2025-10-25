@@ -1,3 +1,0 @@
-name: builder-space-efs
-runtime: python
-description: EFS file system for multi-AZ persistent storage
